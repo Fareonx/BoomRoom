@@ -450,6 +450,52 @@ io.on('connection', (socket) => {
       broadcastRoomState(currentRoomCode);
     }
   });
+
+  // WebRTC Signaling
+  socket.on('join_voice_chat', () => {
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.gameState !== 'PLAYING') return;
+    const sender = room.players.get(socket.id);
+    if (!sender || !sender.room) return;
+    sender.inVoiceChat = true;
+
+    // Tell everyone else in this room that I joined, so they can send me an offer if they are also in voice
+    room.players.forEach(p => {
+      if (p.id !== socket.id && p.room === sender.room && p.inVoiceChat) {
+        io.to(p.id).emit('peer_joined_voice', { peerId: socket.id });
+      }
+    });
+  });
+
+  socket.on('leave_voice_chat', () => {
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    const sender = room.players.get(socket.id);
+    if (sender) sender.inVoiceChat = false;
+
+    // Tell others to close my connection
+    room.players.forEach(p => {
+      if (p.id !== socket.id && p.room === sender.room) {
+        io.to(p.id).emit('peer_left_voice', { peerId: socket.id });
+      }
+    });
+  });
+
+  socket.on('webrtc_signal', ({ targetId, signal }) => {
+    const room = rooms.get(currentRoomCode);
+    if (!room) return;
+    const sender = room.players.get(socket.id);
+    const target = room.players.get(targetId);
+    
+    // Only route signals if they are in the same room (A or B)
+    if (sender && target && sender.room === target.room) {
+      io.to(targetId).emit('webrtc_signal', {
+        senderId: socket.id,
+        signal
+      });
+    }
+  });
+
 });
 
 function recalculateLeader(room, roomLetter) {
@@ -698,6 +744,10 @@ function exchangeHostages(room) {
     const p = room.players.get(id);
     if (p) {
       p.room = 'B';
+      if (p.inVoiceChat) {
+        p.inVoiceChat = false; // Force re-join or turn off
+        io.to(id).emit('force_leave_voice');
+      }
       io.to(id).emit('room_changed_clear_chat', { newRoom: 'B' });
     }
   });
@@ -707,6 +757,10 @@ function exchangeHostages(room) {
     const p = room.players.get(id);
     if (p) {
       p.room = 'A';
+      if (p.inVoiceChat) {
+        p.inVoiceChat = false;
+        io.to(id).emit('force_leave_voice');
+      }
       io.to(id).emit('room_changed_clear_chat', { newRoom: 'A' });
     }
   });

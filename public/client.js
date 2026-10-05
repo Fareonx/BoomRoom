@@ -657,3 +657,138 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+
+// --- WEBRTC VOICE CHAT ---
+const btnToggleVoice = document.getElementById('btn-toggle-voice');
+let micEnabled = false;
+let localStream = null;
+let peerConnections = {}; // targetId -> RTCPeerConnection
+
+// Container for audio tags
+const audioContainer = document.createElement('div');
+audioContainer.id = 'audio-container';
+audioContainer.style.display = 'none';
+document.body.appendChild(audioContainer);
+
+const rtcConfig = {
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+};
+
+btnToggleVoice.addEventListener('click', async () => {
+  if (!micEnabled) {
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micEnabled = true;
+      btnToggleVoice.textContent = '🔊 Səsi Bağla';
+      btnToggleVoice.style.background = '#22c55e'; // green
+      socket.emit('join_voice_chat');
+      showToast('Səsli çat aktivdir!');
+    } catch (err) {
+      showToast('Mikrofona icazə verilmədi!');
+    }
+  } else {
+    disableVoice();
+  }
+});
+
+function disableVoice() {
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  micEnabled = false;
+  btnToggleVoice.textContent = '🎤 Səsi Aç';
+  btnToggleVoice.style.background = '#334155';
+  
+  // Close all peer connections
+  Object.values(peerConnections).forEach(pc => pc.close());
+  peerConnections = {};
+  audioContainer.innerHTML = ''; // clear audio elements
+  
+  socket.emit('leave_voice_chat');
+}
+
+// When a new person joins voice chat in our room
+socket.on('peer_joined_voice', async ({ peerId }) => {
+  if (!micEnabled) return;
+  // Create offer
+  const pc = createPeerConnection(peerId);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  
+  socket.emit('webrtc_signal', {
+    targetId: peerId,
+    signal: { type: 'offer', offer }
+  });
+});
+
+socket.on('peer_left_voice', ({ peerId }) => {
+  if (peerConnections[peerId]) {
+    peerConnections[peerId].close();
+    delete peerConnections[peerId];
+    const audioEl = document.getElementById(`audio-${peerId}`);
+    if (audioEl) audioEl.remove();
+  }
+});
+
+socket.on('force_leave_voice', () => {
+  if (micEnabled) {
+    disableVoice();
+    showToast('Otaq dəyişdiyi üçün səsli çat dayandırıldı. Yenidən qoşula bilərsiniz.');
+  }
+});
+
+socket.on('webrtc_signal', async ({ senderId, signal }) => {
+  if (!micEnabled) return;
+
+  let pc = peerConnections[senderId];
+  if (!pc) {
+    pc = createPeerConnection(senderId);
+  }
+
+  if (signal.type === 'offer') {
+    await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('webrtc_signal', {
+      targetId: senderId,
+      signal: { type: 'answer', answer }
+    });
+  } else if (signal.type === 'answer') {
+    await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
+  } else if (signal.type === 'candidate') {
+    await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+  }
+});
+
+function createPeerConnection(peerId) {
+  const pc = new RTCPeerConnection(rtcConfig);
+  peerConnections[peerId] = pc;
+
+  if (localStream) {
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  }
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit('webrtc_signal', {
+        targetId: peerId,
+        signal: { type: 'candidate', candidate: event.candidate }
+      });
+    }
+  };
+
+  pc.ontrack = (event) => {
+    let audioEl = document.getElementById(`audio-${peerId}`);
+    if (!audioEl) {
+      audioEl = document.createElement('audio');
+      audioEl.id = `audio-${peerId}`;
+      audioEl.autoplay = true;
+      audioContainer.appendChild(audioEl);
+    }
+    audioEl.srcObject = event.streams[0];
+  };
+
+  return pc;
+}
