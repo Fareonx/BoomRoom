@@ -546,6 +546,19 @@ btnCloseCardReveal.addEventListener('click', () => {
 });
 
 // 9. In-Room Chat Handling
+socket.on('room_changed_clear_chat', ({ newRoom }) => {
+  myRoom = newRoom;
+  updateRoomTitle();
+  chatMessagesContainer.innerHTML = '';
+  appendChatMessage({
+    senderName: 'SİSTEM',
+    text: `🔄 Siz Otaq ${newRoom}-yə keçdiniz. Əvvəlki otağın söhbətləri gizlilik üçün sıfırlandı.`,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }, true);
+  Sound.playAlert();
+  showToast(`Siz Otaq ${newRoom}-yə keçdiniz!`);
+});
+
 btnToggleChat.addEventListener('click', () => {
   isChatOpen = true;
   modalRoomChat.classList.remove('hidden');

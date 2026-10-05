@@ -48,10 +48,10 @@ io.on('connection', (socket) => {
     const room = {
       code: roomCode,
       hostId: socket.id,
-      gameState: 'LOBBY', // LOBBY, PLAYING, ENDED
+      gameState: 'LOBBY',
       settings: {
         rounds: 3,
-        roundTimes: [180, 120, 60], // saniyə ilə (3 dəq, 2 dəq, 1 dəq)
+        roundTimes: [180, 120, 60],
         hostagesPerRound: [1, 1, 1],
         advancedRoles: {
           spies: true,
@@ -65,7 +65,7 @@ io.on('connection', (socket) => {
       timerInterval: null,
       roomA: {
         leaderId: null,
-        votes: {}, // voterId -> candidateId
+        votes: {},
         selectedHostages: []
       },
       roomB: {
@@ -156,7 +156,7 @@ io.on('connection', (socket) => {
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    // Send only to players inside the same room (Room A or Room B)
+    // Broadcast only to current players in that room
     room.players.forEach(p => {
       if (p.room === sender.room) {
         io.to(p.id).emit('new_room_chat', msgPayload);
@@ -164,7 +164,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Update Settings (Host only)
+  // Update Settings
   socket.on('update_settings', ({ settings }) => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.hostId !== socket.id || room.gameState !== 'LOBBY') return;
@@ -182,7 +182,7 @@ io.on('connection', (socket) => {
     broadcastRoomState(currentRoomCode);
   });
 
-  // Start Game (Host only)
+  // Start Game
   socket.on('start_game', () => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.hostId !== socket.id || room.gameState !== 'LOBBY') return;
@@ -206,7 +206,6 @@ io.on('connection', (socket) => {
     startRoundTimer(room);
     broadcastRoomState(currentRoomCode);
 
-    // Send secret roles to each player
     room.players.forEach((player) => {
       io.to(player.id).emit('your_secret_role', {
         role: player.role,
@@ -231,7 +230,7 @@ io.on('connection', (socket) => {
     broadcastRoomState(currentRoomCode);
   });
 
-  // Select Hostages (Leader only)
+  // Select Hostages
   socket.on('select_hostages', ({ hostageIds }) => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.gameState !== 'PLAYING') return;
@@ -251,7 +250,7 @@ io.on('connection', (socket) => {
     broadcastRoomState(currentRoomCode);
   });
 
-  // Share Request (Color or Card)
+  // Share Request
   socket.on('request_share', ({ targetIds, type }) => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.gameState !== 'PLAYING') return;
@@ -259,7 +258,6 @@ io.on('connection', (socket) => {
     const sender = room.players.get(socket.id);
     if (!sender) return;
 
-    // Check if sender is Shy Guy
     if (sender.role && sender.role.isShy) {
       return socket.emit('error_message', 'Siz Utancaqsınız! Kartınızı və ya rənginizi göstərmək qadağandır!');
     }
@@ -320,7 +318,6 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Mutual reveal
     if (shareReq.type === 'color') {
       io.to(sender.id).emit('share_revealed', {
         fromPlayer: target.name,
@@ -693,15 +690,25 @@ function exchangeHostages(room) {
     if (!hostagesB.includes(randomPick)) hostagesB.push(randomPick);
   }
 
-  // Swap
+  const leavingA_names = hostagesA.map(id => room.players.get(id)?.name || 'Oyunçu');
+  const leavingB_names = hostagesB.map(id => room.players.get(id)?.name || 'Oyunçu');
+
+  // Move A to B: clear their chat history so they start fresh in Room B!
   hostagesA.forEach(id => {
     const p = room.players.get(id);
-    if (p) p.room = 'B';
+    if (p) {
+      p.room = 'B';
+      io.to(id).emit('room_changed_clear_chat', { newRoom: 'B' });
+    }
   });
 
+  // Move B to A: clear their chat history so they start fresh in Room A!
   hostagesB.forEach(id => {
     const p = room.players.get(id);
-    if (p) p.room = 'A';
+    if (p) {
+      p.room = 'A';
+      io.to(id).emit('room_changed_clear_chat', { newRoom: 'A' });
+    }
   });
 
   room.roomA.selectedHostages = [];
@@ -712,34 +719,60 @@ function exchangeHostages(room) {
   recalculateLeader(room, 'B');
 
   const swappedData = {
-    fromAtoB: hostagesA.map(id => room.players.get(id)?.name),
-    fromBtoA: hostagesB.map(id => room.players.get(id)?.name)
+    fromAtoB: leavingA_names,
+    fromBtoA: leavingB_names
   };
 
   io.to(room.code).emit('hostages_swapped', swappedData);
 
-  // Send system chat notification to each room
-  if (swappedData.fromAtoB.length > 0 || swappedData.fromBtoA.length > 0) {
-    const sysMsgA = {
-      senderId: 'system',
-      senderName: 'SİSTEM',
-      room: 'A',
-      text: `🔄 Otaq A-ya daxil oldu: ${swappedData.fromBtoA.join(', ') || 'Heç kim'} | Otaq A-dan getdi: ${swappedData.fromAtoB.join(', ') || 'Heç kim'}`,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    const sysMsgB = {
-      senderId: 'system',
-      senderName: 'SİSTEM',
-      room: 'B',
-      text: `🔄 Otaq B-yə daxil oldu: ${swappedData.fromAtoB.join(', ') || 'Heç kim'} | Otaq B-dən getdi: ${swappedData.fromBtoA.join(', ') || 'Heç kim'}`,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
+  const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    room.players.forEach(p => {
-      if (p.room === 'A') io.to(p.id).emit('new_room_chat', sysMsgA);
-      if (p.room === 'B') io.to(p.id).emit('new_room_chat', sysMsgB);
-    });
-  }
+  // Targeted chat notifications for players remaining in Room A:
+  // "İlham digər otağa göndərildi" and "Əli otağa daxil oldu"
+  room.players.forEach(p => {
+    if (p.room === 'A' && !hostagesB.includes(p.id)) {
+      if (leavingA_names.length > 0) {
+        io.to(p.id).emit('new_room_chat', {
+          senderId: 'system',
+          senderName: 'SİSTEM',
+          room: 'A',
+          text: `📤 ${leavingA_names.join(', ')} digər otağa göndərildi.`,
+          time: nowTime
+        });
+      }
+      if (leavingB_names.length > 0) {
+        io.to(p.id).emit('new_room_chat', {
+          senderId: 'system',
+          senderName: 'SİSTEM',
+          room: 'A',
+          text: `🚪 ${leavingB_names.join(', ')} otağa daxil oldu.`,
+          time: nowTime
+        });
+      }
+    }
+
+    // Targeted chat notifications for players remaining in Room B:
+    if (p.room === 'B' && !hostagesA.includes(p.id)) {
+      if (leavingB_names.length > 0) {
+        io.to(p.id).emit('new_room_chat', {
+          senderId: 'system',
+          senderName: 'SİSTEM',
+          room: 'B',
+          text: `📤 ${leavingB_names.join(', ')} digər otağa göndərildi.`,
+          time: nowTime
+        });
+      }
+      if (leavingA_names.length > 0) {
+        io.to(p.id).emit('new_room_chat', {
+          senderId: 'system',
+          senderName: 'SİSTEM',
+          room: 'B',
+          text: `🚪 ${leavingA_names.join(', ')} otağa daxil oldu.`,
+          time: nowTime
+        });
+      }
+    }
+  });
 }
 
 function broadcastRoomState(roomCode) {
@@ -780,5 +813,5 @@ function broadcastRoomState(roomCode) {
 }
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`İki Otaq və Bomba serveri aktivdir: http://localhost:${PORT}`);
+  console.log(`BoomRoom: Two Rooms & a Boom running on http://localhost:${PORT}`);
 });
