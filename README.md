@@ -1,63 +1,73 @@
-# 💣 Two Rooms and a Boom (Две комнаты и бум) — Web / Party Edition
+# 💣 İki Otaq və Bomba (Two Rooms and a Boom) — Azərbaycan dilində Web / Party Oyunu
 
-Полноценная браузерная пати-игра со скрытыми ролями для игры со смартфонов и компьютеров (вживую или через Discord).
-
----
-
-## 🌟 Возможности и механики
-
-- **Вход по 4-буквенному коду:** игрокам не нужно ничего скачивать — только ввести имя и код комнаты.
-- **Шпионские роли и психологический блеф:**
-  - 🛡️ **Президент (Синие):** цель — остаться в финале в комнате БЕЗ Бомбиста.
-  - 💣 **Бомбист (Красные):** цель — проникнуть в комнату с Президентом перед взрывом.
-  - 🕵️ **Красный Шпион (Red Spy):** боец Красных, но при «Color Share» **светится СИНИМ**!
-  - 🕵️ **Синий Шпион (Blue Spy):** боец Синих, но при «Color Share» **светится КРАСНЫМ**!
-  - 🤐 **Скромник (Shy Guy):** ему строго запрещено показывать карту или цвет (кнопки заблокированы). Любой игрок на допросе может притворяться Скромником!
-  - 🔍 **Агент (Agent):** раз за раунд может принудительно допросить любого игрока в комнате (если тот не Скромник).
-- **Интерактивный цифровой шеринг:**
-  - Выберите одного или нескольких соратников по комнате.
-  - **Color Share:** экран заливается цветом команды (с учетом фальшивых цветов шпионов).
-  - **Card Share:** взаимное раскрытие полной карты роли.
-- **Синхронный серверный таймер:**
-  - Настраиваемые раунды (3 раунда: 3 мин $\rightarrow$ 2 мин $\rightarrow$ 1 мин).
-  - Голосование за Лидера комнаты прямо в приложении.
-  - Лидер выбирает заложников для депортации в другую комнату.
-- **Встроенный процедурный звуковой движок:** (Web Audio API) тиканье таймера, карточные эффекты, победные фанфары и мощный взрыв.
+Smartfonlar və kompüterlər üçün nəzərdə tutulmuş, gizli rollar və psixoloji gərginliklə dolu onlayn və canlı partiya oyunu.
 
 ---
 
-## 🚀 Как запустить локально
+## 🌟 Əsas Xüsusiyyətlər və Qaydalar
 
-1. Откройте терминал в папке проекта:
+- **Tam Azərbaycan dilində:** bütün interfeys, rollar, təsvirlər və sistem bildirişləri doğma dilimizdədir.
+- **Gizli Otaq Çatı (Otaq A və Otaq B):**
+  - Hər otağın özünəməxsus daxili çatı var.
+  - Otaq A-da yazılanları yalnız Otaq A-dakılar, Otaq B-də yazılanları yalnız Otaq B-dəkilər oxuyur.
+  - Girov dəyişikliyi zamanı başqa otağa keçən oyunçu avtomatik olaraq yeni otağın çatına qoşulur!
+- **Rollar və Psixoloji Taktikalar:**
+  - 🛡️ **Prezident (Mavilər):** məqsədi 3-cü raundun sonunda Bombist OLMAYAN otaqda olmaqdır.
+  - 💣 **Bombist (Qırmızılar):** məqsədi partlayış zamanı Prezidentlə EYNİ otaqda olmaqdır.
+  - 🕵️ **Qırmızı Casus:** Qırmızı komandanın üzvüdür, lakin Rəng Paylaşımında onun rəngi **MAVİ** yanır!
+  - 🕵️ **Mavi Casus:** Mavi komandanın üzvüdür, lakin Rəng Paylaşımında onun rəngi **QIRMIZI** yanır!
+  - 🤐 **Utancaq:** kartını və ya rəngini heç kimə göstərə bilməz (düymələr bloklanıb). Digər şübhəli oyunçular da özlərini Utancaq kimi göstərib yalan danışa bilər!
+  - 🔍 **Agent:** hər raundda bir dəfə öz otağındakı istənilən oyunçunu məcburi dindirib kartına baxa bilər (əgər hədəf Utancaq deyilsə).
+- **Rəqəmsal Əl Sıxma (Handshake):**
+  - Otağınızdakı bir və ya bir neçə dostunuzu seçib onlara **«Rəngi göstər»** və ya **«Kartı göstər»** təklifi göndərə bilərsiniz.
+- **Səs Efektləri (Web Audio API):**
+  - Taymerin son saniyələrinin döyüntüsü, kart vərəqləmə, həyəcan siqnalı və qələbə/partlayış səsləri.
+
+---
+
+## 🚀 Kompüterdə Lokal İcra (Evdə Wi-Fi ilə oynamaq üçün)
+
+1. Terminalda layihə qovluğuna daxil olun:
    ```bash
-   cd two-rooms-and-a-boom
+   cd "C:\Users\FeNiNi\.gemini\antigravity\scratch\two-rooms-and-a-boom"
    npm install
    npm start
    ```
-2. Откройте в браузере: `http://localhost:3000`
-3. **Для игры с друзьями по домашнему Wi-Fi:**
-   - Узнайте свой локальный IP в Windows (`ipconfig`, строка IPv4-адрес, например `192.168.1.15`).
-   - Друзья на телефонах подключаются к вашей Wi-Fi сети и открывают в мобильном браузере: `http://192.168.1.15:3000`.
+2. Brauzerdə açın: `http://localhost:3000`
+3. **Dostlarınızın telefonla qoşulması üçün:**
+   - Kompüterinizin lokal IP ünvanını öyrənin (`ipconfig` əmrini yazın, məsələn: `192.168.1.15`).
+   - Eyni Wi-Fi-ya qoşulmuş dostlarınız telefon brauzerində bu ünvana daxil olurlar: `http://192.168.1.15:3000`.
 
 ---
 
-## ☁️ Бесплатный деплой в интернет (за 2 минуты)
+## 🐙 Layihəni GitHub-a necə yükləmək olar? (Addım-addım)
 
-Чтобы играть онлайн из любого места через мобильный интернет:
+1. [github.com](https://github.com) saytına daxil olun və hesabınıza daxil olun.
+2. Yuxarı sağ küncdə **+** düyməsini sıxıb **New repository** seçin.
+3. Repository name yerinə ad yazın: məsələn `iki-otaq-ve-bomba`.
+4. **Public** və ya **Private** seçin və **Create repository** düyməsinə klikləyin.
+5. Açılan səhifədəki linki kopyalayın (məsələn: `https://github.com/SİZİN_İSTİFADƏÇİ_ADINIZ/iki-otaq-ve-bomba.git`).
+6. Kompüterinizdə terminalı (PowerShell) açıb bu əmrləri icra edin:
 
-### Вариант: Render.com (Бесплатно)
-1. Создайте репозиторий на GitHub и загрузите файлы проекта:
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   # подключите ваш github репозиторий и сделайте git push
-   ```
-2. Зайдите на [render.com](https://render.com) $\rightarrow$ нажмите **New +** $\rightarrow$ **Web Service**.
-3. Выберите ваш GitHub-репозиторий.
-4. Настройки:
-   - **Environment:** `Node`
+```bash
+cd "C:\Users\FeNiNi\.gemini\antigravity\scratch\two-rooms-and-a-boom"
+git add .
+git commit -m "feat: tam azerbaycan dilinde iki otaq ve bomba oyunu ve otaq cati"
+git branch -M main
+git remote add origin https://github.com/SİZİN_İSTİFADƏÇİ_ADINIZ/iki-otaq-ve-bomba.git
+git push -u origin main
+```
+Artıq layihəniz bütünlüklə GitHub-dadır!
+
+---
+
+## ☁️ İnternetdə Pulsuz Yerləşdirmə (Render.com)
+
+Dostlarınız fərqli evlərdədirsə (onlayn oynamaq üçün):
+1. [render.com](https://render.com) saytına GitHub ilə daxil olun.
+2. **New +** $\rightarrow$ **Web Service** seçin və `iki-otaq-ve-bomba` reponuzu bağlayın.
+3. Ayarlar:
+   - **Environment:** Node
    - **Build Command:** `npm install`
    - **Start Command:** `node server.js`
-5. Нажмите **Deploy** — через минуту вы получите постоянную ссылку (например, `https://two-rooms-game.onrender.com`), которой можно делиться с друзьями в Telegram или Discord!
+4. **Deploy** vurun — 1 dəqiqəyə sizə internet linki veriləcək (məsələn: `https://iki-otaq-ve-bomba.onrender.com`).

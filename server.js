@@ -51,7 +51,7 @@ io.on('connection', (socket) => {
       gameState: 'LOBBY', // LOBBY, PLAYING, ENDED
       settings: {
         rounds: 3,
-        roundTimes: [180, 120, 60], // in seconds (3m, 2m, 1m)
+        roundTimes: [180, 120, 60], // saniyə ilə (3 dəq, 2 dəq, 1 dəq)
         hostagesPerRound: [1, 1, 1],
         advancedRoles: {
           spies: true,
@@ -74,12 +74,12 @@ io.on('connection', (socket) => {
         selectedHostages: []
       },
       gameResult: null,
-      pendingShares: new Map() // reqId -> { fromId, targetId, type, status }
+      pendingShares: new Map()
     };
 
     room.players.set(socket.id, {
       id: socket.id,
-      name: playerName || 'Игрок 1',
+      name: playerName || 'Oyunçu 1',
       isHost: true,
       room: null,
       role: null,
@@ -105,11 +105,11 @@ io.on('connection', (socket) => {
     const room = rooms.get(code);
 
     if (!room) {
-      return socket.emit('error_message', 'Комната не найдена! Проверьте код.');
+      return socket.emit('error_message', 'Otaq tapılmadı! Zəhmət olmasa kodu yoxlayın.');
     }
 
     if (room.gameState !== 'LOBBY') {
-      return socket.emit('error_message', 'Игра в этой комнате уже началась!');
+      return socket.emit('error_message', 'Bu otaqda oyun artıq başlayıb!');
     }
 
     currentRoomCode = code;
@@ -120,7 +120,7 @@ io.on('connection', (socket) => {
 
     room.players.set(socket.id, {
       id: socket.id,
-      name: playerName || `Игрок ${room.players.size + 1}`,
+      name: playerName || `Oyunçu ${room.players.size + 1}`,
       isHost,
       room: null,
       role: null,
@@ -135,6 +135,33 @@ io.on('connection', (socket) => {
     });
 
     broadcastRoomState(code);
+  });
+
+  // In-Room Chat Message
+  socket.on('send_room_chat', ({ message }) => {
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.gameState !== 'PLAYING') return;
+
+    const sender = room.players.get(socket.id);
+    if (!sender || !sender.room) return;
+
+    const text = (message || '').trim();
+    if (!text) return;
+
+    const msgPayload = {
+      senderId: sender.id,
+      senderName: sender.name,
+      room: sender.room,
+      text: text.substring(0, 300),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    // Send only to players inside the same room (Room A or Room B)
+    room.players.forEach(p => {
+      if (p.room === sender.room) {
+        io.to(p.id).emit('new_room_chat', msgPayload);
+      }
+    });
   });
 
   // Update Settings (Host only)
@@ -162,7 +189,7 @@ io.on('connection', (socket) => {
 
     const playerCount = room.players.size;
     if (playerCount < 4) {
-      return socket.emit('error_message', 'Для игры нужно минимум 4 человека (рекомендуется 6-12)!');
+      return socket.emit('error_message', 'Oyunu başlamaq üçün ən azı 4 oyunçu lazımdır (tövsiyə olunur: 6-12)!');
     }
 
     assignRolesAndRooms(room);
@@ -200,7 +227,6 @@ io.on('connection', (socket) => {
     const roomData = voter.room === 'A' ? room.roomA : room.roomB;
     roomData.votes[socket.id] = candidateId;
 
-    // Recalculate leader
     recalculateLeader(room, voter.room);
     broadcastRoomState(currentRoomCode);
   });
@@ -216,7 +242,6 @@ io.on('connection', (socket) => {
     const roomData = player.room === 'A' ? room.roomA : room.roomB;
     const maxHostages = room.settings.hostagesPerRound[room.currentRound - 1] || 1;
 
-    // Filter valid hostage IDs (must be in same room, cannot be leader himself)
     const valid = hostageIds.filter(id => {
       const target = room.players.get(id);
       return target && target.room === player.room && id !== socket.id;
@@ -226,7 +251,7 @@ io.on('connection', (socket) => {
     broadcastRoomState(currentRoomCode);
   });
 
-  // Share Request (Color or Card) - to one or multiple targets in same room
+  // Share Request (Color or Card)
   socket.on('request_share', ({ targetIds, type }) => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.gameState !== 'PLAYING') return;
@@ -236,7 +261,7 @@ io.on('connection', (socket) => {
 
     // Check if sender is Shy Guy
     if (sender.role && sender.role.isShy) {
-      return socket.emit('error_message', 'Вы Скромник! Вам строго запрещено показывать карту или цвет!');
+      return socket.emit('error_message', 'Siz Utancaqsınız! Kartınızı və ya rənginizi göstərmək qadağandır!');
     }
 
     if (!Array.isArray(targetIds) || targetIds.length === 0) return;
@@ -252,7 +277,7 @@ io.on('connection', (socket) => {
         fromName: sender.name,
         targetId: target.id,
         targetName: target.name,
-        type // 'color' | 'card'
+        type
       });
 
       io.to(target.id).emit('incoming_share_request', {
@@ -289,16 +314,14 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Check if target is Shy Guy
     if (target.role && target.role.isShy) {
-      io.to(sender.id).emit('error_message', `${target.name} не может поделиться: игрок Скромник!`);
-      socket.emit('error_message', 'Вы Скромник! Вам запрещено делиться информацией!');
+      io.to(sender.id).emit('error_message', `${target.name} Utancaqdır! O kartını göstərə bilməz.`);
+      socket.emit('error_message', 'Siz Utancaqsınız! Kartınızı göstərmək qadağandır.');
       return;
     }
 
-    // Mutual reveal!
+    // Mutual reveal
     if (shareReq.type === 'color') {
-      // Color share: apparentColor
       io.to(sender.id).emit('share_revealed', {
         fromPlayer: target.name,
         type: 'color',
@@ -310,7 +333,6 @@ io.on('connection', (socket) => {
         data: { color: sender.role.apparentColor }
       });
     } else if (shareReq.type === 'card') {
-      // Full Card share
       io.to(sender.id).emit('share_revealed', {
         fromPlayer: target.name,
         type: 'card',
@@ -332,7 +354,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Agent Interrogation Power
+  // Agent Interrogation
   socket.on('agent_interrogate', ({ targetId }) => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.gameState !== 'PLAYING') return;
@@ -341,15 +363,15 @@ io.on('connection', (socket) => {
     const target = room.players.get(targetId);
 
     if (!agent || !agent.role || !agent.role.isAgent) {
-      return socket.emit('error_message', 'У вас нет полномочий Агента!');
+      return socket.emit('error_message', 'Sizin Agent səlahiyyətiniz yoxdur!');
     }
 
     if (agent.agentUsedThisRound) {
-      return socket.emit('error_message', 'Вы уже использовали способность Агента в этом раунде!');
+      return socket.emit('error_message', 'Siz bu raundda Agent qabiliyyətini artıq istifadə etmisiniz!');
     }
 
     if (!target || target.room !== agent.room) {
-      return socket.emit('error_message', 'Цель должна быть в вашей комнате!');
+      return socket.emit('error_message', 'Hədəf sizin otağınızda olmalıdır!');
     }
 
     agent.agentUsedThisRound = true;
@@ -358,7 +380,7 @@ io.on('connection', (socket) => {
       socket.emit('agent_result', {
         targetName: target.name,
         success: false,
-        message: `${target.name} оказался Скромником! Он физически не может раскрыть карту.`
+        message: `${target.name} Utancaq çıxdı! Onun kartını görmək qeyri-mümkündür.`
       });
       io.to(target.id).emit('agent_interrogated_you', {
         agentName: agent.name,
@@ -383,7 +405,7 @@ io.on('connection', (socket) => {
     broadcastRoomState(currentRoomCode);
   });
 
-  // Reset Game / Back to Lobby
+  // Restart Game
   socket.on('restart_game', () => {
     const room = rooms.get(currentRoomCode);
     if (!room || room.hostId !== socket.id) return;
@@ -451,7 +473,6 @@ function recalculateLeader(room, roomLetter) {
     }
   }
 
-  // Update leaders in player objects
   room.players.forEach(p => {
     if (p.room === roomLetter) {
       p.isLeader = (p.id === topCandidate);
@@ -465,7 +486,6 @@ function assignRolesAndRooms(room) {
   const playerIds = shuffle(Array.from(room.players.keys()));
   const n = playerIds.length;
 
-  // Split into Room A and Room B
   const half = Math.ceil(n / 2);
   const roomAPlayers = playerIds.slice(0, half);
   const roomBPlayers = playerIds.slice(half);
@@ -479,27 +499,22 @@ function assignRolesAndRooms(room) {
     p.room = 'B';
   });
 
-  // Setup roles
-  const rolesList = [];
-
-  // Core roles: President (Blue) and Bomber (Red)
   const presRole = {
     roleId: 'president',
-    name: 'Президент',
+    name: 'Prezident',
     team: 'blue',
     apparentColor: 'blue',
-    desc: 'Главная цель Синих! В конце 3-го раунда вы ОБЯЗАНЫ быть в комнате БЕЗ Бомбиста.'
+    desc: 'Mavilərin əsas lideri! 3-cü raundun sonunda Bombist OLMAYAN otaqda olmalısınız.'
   };
 
   const bomberRole = {
     roleId: 'bomber',
-    name: 'Бомбист',
+    name: 'Bombist',
     team: 'red',
     apparentColor: 'red',
-    desc: 'Главная цель Красных! В конце 3-го раунда вы ОБЯЗАНЫ оказаться в ОДНОЙ комнате с Президентом, чтобы взорвать его.'
+    desc: 'Qırmızıların əsas oyunçusu! 3-cü raundun sonunda Prezidentlə EYNİ OTAQDA olmalısınız ki, partlayış baş versin.'
   };
 
-  // Place President in Room A and Bomber in Room B (standard recommendation)
   const presPlayerId = roomAPlayers[0];
   const bomberPlayerId = roomBPlayers[0];
 
@@ -512,22 +527,23 @@ function assignRolesAndRooms(room) {
   ]);
 
   const adv = room.settings.advancedRoles;
+  const rolesList = [];
 
   // Spies
   if (adv.spies && remainingPlayers.length >= 2) {
     rolesList.push({
       roleId: 'red_spy',
-      name: 'Красный Шпион',
+      name: 'Qırmızı Casus',
       team: 'red',
-      apparentColor: 'blue', // Deceptive!
-      desc: 'Вы в команде Красных, НО при показе цвета (Color Share) вы светитесь СИНИМ! Обманывайте Синих и сдавайте позицию Президента.'
+      apparentColor: 'blue',
+      desc: 'Siz Qırmızı komandadasınız, lakin Rəng Göstərəndə rənginiz MAVİ parıldayır! Maviləri aldadın və Prezidentin yerini öyrənin.'
     });
     rolesList.push({
       roleId: 'blue_spy',
-      name: 'Синий Шпион',
+      name: 'Mavi Casus',
       team: 'blue',
-      apparentColor: 'red', // Deceptive!
-      desc: 'Вы в команде Синих, НО при показе цвета (Color Share) вы светитесь КРАСНЫМ! Проникайте в планы Красных и уводите Президента.'
+      apparentColor: 'red',
+      desc: 'Siz Mavi komandadasınız, lakin Rəng Göstərəndə rənginiz QIRMIZI parıldayır! Qırmızıların planını pozun.'
     });
   }
 
@@ -535,23 +551,22 @@ function assignRolesAndRooms(room) {
   if (adv.shyGuy && adv.agent && remainingPlayers.length >= (rolesList.length + 2)) {
     rolesList.push({
       roleId: 'shy_guy',
-      name: 'Скромник',
+      name: 'Utancaq',
       team: 'blue',
       apparentColor: 'blue',
       isShy: true,
-      desc: 'Вам СТРОГО ЗАПРЕЩЕНО делиться картой или цветом! Кнопки показа заблокированы. Другие игроки могут выдавать себя за вас.'
+      desc: 'Sizə kartınızı və ya rənginizi göstərmək QƏTİ QADAĞANDIR! Düymələr bloklanıb. Digər oyunçular da özlərini Utancaq kimi qələmə verə bilər.'
     });
     rolesList.push({
       roleId: 'agent',
-      name: 'Агент',
+      name: 'Agent',
       team: 'red',
       apparentColor: 'red',
       isAgent: true,
-      desc: 'Раз за раунд вы можете принудительно заставить любого игрока в вашей комнате раскрыть карту (если он не Скромник).'
+      desc: 'Hər raundda bir dəfə öz otağınızdakı istənilən oyunçunu məcburi dindirib kartına baxa bilərsiniz (əgər o Utancaq deyilsə).'
     });
   }
 
-  // Assign generated special roles
   rolesList.forEach(r => {
     if (remainingPlayers.length > 0) {
       const pid = remainingPlayers.pop();
@@ -559,7 +574,6 @@ function assignRolesAndRooms(room) {
     }
   });
 
-  // Balance the rest with guards and terrorists
   let blueCount = Array.from(room.players.values()).filter(p => p.role && p.role.team === 'blue').length;
   let redCount = Array.from(room.players.values()).filter(p => p.role && p.role.team === 'red').length;
 
@@ -568,19 +582,19 @@ function assignRolesAndRooms(room) {
     if (blueCount <= redCount) {
       room.players.get(pid).role = {
         roleId: 'blue_guard',
-        name: 'Агент охраны',
+        name: 'Mühafizəçi',
         team: 'blue',
         apparentColor: 'blue',
-        desc: 'Обычный агент Синей команды. Защищайте Президента и вычисляйте шпионов.'
+        desc: 'Mavi komandanın döyüşçüsü. Prezidenti qoruyun və casusları aşkar edin.'
       };
       blueCount++;
     } else {
       room.players.get(pid).role = {
         roleId: 'red_terrorist',
-        name: 'Боевик',
+        name: 'Terrorçu',
         team: 'red',
         apparentColor: 'red',
-        desc: 'Обычный боец Красной команды. Помогайте Бомбисту найти Президента.'
+        desc: 'Qırmızı komandanın döyüşçüsü. Bombistə Prezidenti tapmaqda kömək edin.'
       };
       redCount++;
     }
@@ -608,16 +622,13 @@ function handleRoundEnd(room) {
   const maxRounds = room.settings.rounds;
   const currentR = room.currentRound;
 
-  // Swap hostages
   exchangeHostages(room);
 
   if (currentR >= maxRounds) {
-    // End Game!
     clearInterval(room.timerInterval);
     room.timerInterval = null;
     room.gameState = 'ENDED';
 
-    // Evaluate winner
     let presRoom = null;
     let bomberRoom = null;
 
@@ -630,10 +641,10 @@ function handleRoundEnd(room) {
 
     room.gameResult = {
       winner: isBoom ? 'red' : 'blue',
-      title: isBoom ? '💥 БУМ! ПОБЕДА КРАСНЫХ!' : '🛡️ ПРЕЗИДЕНТ СПАСЕН! ПОБЕДА СИНИХ!',
+      title: isBoom ? '💥 BUM! QIRMIZILAR QALİB GƏLDİ!' : '🛡️ PREZİDENT XİLAS EDİLDİ! MAVİLƏR QALİB GƏLDİ!',
       message: isBoom
-        ? `Бомбист и Президент оказались вместе в Комнате ${presRoom}! Раздался взрыв.`
-        : `Президент находился в Комнате ${presRoom}, а Бомбист — в Комнате ${bomberRoom}. Бомба взорвалась впустую!`,
+        ? `Bombist və Prezident Otaq ${presRoom}-də bir araya gəldi! Güclü partlayış baş verdi.`
+        : `Prezident Otaq ${presRoom}-də, Bombist isə Otaq ${bomberRoom}-də idi. Bomba boş otaqda partladı!`,
       playersDebrief: Array.from(room.players.values()).map(p => ({
         id: p.id,
         name: p.name,
@@ -645,11 +656,9 @@ function handleRoundEnd(room) {
     io.to(room.code).emit('game_ended', room.gameResult);
     broadcastRoomState(room.code);
   } else {
-    // Advance to next round
     room.currentRound++;
     room.roundTimeRemaining = room.settings.roundTimes[room.currentRound - 1] || 60;
 
-    // Reset round states
     room.players.forEach(p => {
       p.agentUsedThisRound = false;
     });
@@ -671,7 +680,6 @@ function exchangeHostages(room) {
   let hostagesA = [...room.roomA.selectedHostages];
   let hostagesB = [...room.roomB.selectedHostages];
 
-  // If leader didn't select enough, pick random non-leaders
   const availableA = Array.from(room.players.values()).filter(p => p.room === 'A' && !p.isLeader).map(p => p.id);
   const availableB = Array.from(room.players.values()).filter(p => p.room === 'B' && !p.isLeader).map(p => p.id);
 
@@ -685,19 +693,17 @@ function exchangeHostages(room) {
     if (!hostagesB.includes(randomPick)) hostagesB.push(randomPick);
   }
 
-  // Move A to B
+  // Swap
   hostagesA.forEach(id => {
     const p = room.players.get(id);
     if (p) p.room = 'B';
   });
 
-  // Move B to A
   hostagesB.forEach(id => {
     const p = room.players.get(id);
     if (p) p.room = 'A';
   });
 
-  // Clear selections
   room.roomA.selectedHostages = [];
   room.roomB.selectedHostages = [];
   room.roomA.votes = {};
@@ -705,11 +711,35 @@ function exchangeHostages(room) {
   recalculateLeader(room, 'A');
   recalculateLeader(room, 'B');
 
-  // Notify players about hostage exchange
-  io.to(room.code).emit('hostages_swapped', {
+  const swappedData = {
     fromAtoB: hostagesA.map(id => room.players.get(id)?.name),
     fromBtoA: hostagesB.map(id => room.players.get(id)?.name)
-  });
+  };
+
+  io.to(room.code).emit('hostages_swapped', swappedData);
+
+  // Send system chat notification to each room
+  if (swappedData.fromAtoB.length > 0 || swappedData.fromBtoA.length > 0) {
+    const sysMsgA = {
+      senderId: 'system',
+      senderName: 'SİSTEM',
+      room: 'A',
+      text: `🔄 Otaq A-ya daxil oldu: ${swappedData.fromBtoA.join(', ') || 'Heç kim'} | Otaq A-dan getdi: ${swappedData.fromAtoB.join(', ') || 'Heç kim'}`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    const sysMsgB = {
+      senderId: 'system',
+      senderName: 'SİSTEM',
+      room: 'B',
+      text: `🔄 Otaq B-yə daxil oldu: ${swappedData.fromAtoB.join(', ') || 'Heç kim'} | Otaq B-dən getdi: ${swappedData.fromBtoA.join(', ') || 'Heç kim'}`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    room.players.forEach(p => {
+      if (p.room === 'A') io.to(p.id).emit('new_room_chat', sysMsgA);
+      if (p.room === 'B') io.to(p.id).emit('new_room_chat', sysMsgB);
+    });
+  }
 }
 
 function broadcastRoomState(roomCode) {
@@ -750,5 +780,5 @@ function broadcastRoomState(roomCode) {
 }
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Two Rooms and a Boom server running on http://localhost:${PORT}`);
+  console.log(`İki Otaq və Bomba serveri aktivdir: http://localhost:${PORT}`);
 });

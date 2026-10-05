@@ -11,6 +11,7 @@ let myRoom = null;
 let roomState = null;
 let selectedTargetIds = new Set();
 let pendingIncomingReqId = null;
+let isChatOpen = false;
 
 // DOM Elements
 const screenAuth = document.getElementById('screen-auth');
@@ -83,7 +84,17 @@ const flashColorName = document.getElementById('flash-color-name');
 const flashFromPlayer = document.getElementById('flash-from-player');
 const toastEl = document.getElementById('toast');
 
-// Auto-fill player name from localStorage if exists
+// Chat Elements
+const btnToggleChat = document.getElementById('btn-toggle-chat');
+const chatUnreadDot = document.getElementById('chat-unread-dot');
+const modalRoomChat = document.getElementById('modal-room-chat');
+const chatHeaderRoomTitle = document.getElementById('chat-header-room-title');
+const chatMessagesContainer = document.getElementById('chat-messages-container');
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+const btnCloseChat = document.getElementById('btn-close-chat');
+
+// Auto-fill player name
 if (localStorage.getItem('boom_player_name')) {
   playerNameInput.value = localStorage.getItem('boom_player_name');
 }
@@ -96,17 +107,17 @@ function showToast(msg) {
   }, 3000);
 }
 
-// 1. Join / Create
+// 1. Join / Create Room
 btnCreateRoom.addEventListener('click', () => {
-  const name = playerNameInput.value.trim() || 'Командир';
+  const name = playerNameInput.value.trim() || 'Komandir';
   localStorage.setItem('boom_player_name', name);
   socket.emit('create_room', { playerName: name });
 });
 
 btnJoinRoom.addEventListener('click', () => {
-  const name = playerNameInput.value.trim() || 'Агент';
+  const name = playerNameInput.value.trim() || 'Oyunçu';
   const code = roomCodeInput.value.trim().toUpperCase();
-  if (!code) return showToast('Введите 4-значный код комнаты!');
+  if (!code) return showToast('4 rəqəmli/hərfli otaq kodunu daxil edin!');
   localStorage.setItem('boom_player_name', name);
   socket.emit('join_room', { roomCode: code, playerName: name });
 });
@@ -134,6 +145,7 @@ function switchToLobby() {
   screenAuth.classList.add('hidden');
   screenGame.classList.add('hidden');
   screenGameOver.classList.add('hidden');
+  btnToggleChat.classList.add('hidden');
   screenLobby.classList.remove('hidden');
 
   lobbyRoomCode.textContent = currentRoomCode;
@@ -149,7 +161,7 @@ function switchToLobby() {
   }
 }
 
-// Host Settings change
+// Host Settings
 function sendHostSettings() {
   if (!isHost) return;
   const rounds = parseInt(settingRounds.value, 10);
@@ -183,24 +195,22 @@ socket.on('your_secret_role', ({ role, room }) => {
   myRole = role;
   myRoom = room;
 
-  // Setup UI
   secretCard.className = 'secret-role-card';
   secretCard.classList.add(role.team === 'blue' ? 'team-blue' : 'team-red');
 
-  cardTeamBadge.textContent = role.team === 'blue' ? 'СИНЯЯ КОМАНДА' : 'КРАСНАЯ КОМАНДА';
+  cardTeamBadge.textContent = role.team === 'blue' ? 'MAVİ KOMANDA' : 'QIRMIZI KOMANDA';
   cardTeamBadge.className = `badge ${role.team === 'blue' ? 'badge-blue' : 'badge-red'}`;
   cardRoleName.textContent = role.name;
   cardRoleDesc.textContent = role.desc;
 
   if (role.roleId === 'red_spy') {
-    cardApparentNote.textContent = '🕵️ Ваш цвет при Color Share отображается как СИНИЙ!';
+    cardApparentNote.textContent = '🕵️ Rəng Paylaşımında sizin rənginiz MAVİ görünür!';
   } else if (role.roleId === 'blue_spy') {
-    cardApparentNote.textContent = '🕵️ Ваш цвет при Color Share отображается как КРАСНЫЙ!';
+    cardApparentNote.textContent = '🕵️ Rəng Paylaşımında sizin rənginiz QIRMIZI görünür!';
   } else {
     cardApparentNote.textContent = '';
   }
 
-  // Shy Guy handling
   if (role.isShy) {
     shyWarning.classList.remove('hidden');
     btnShareColor.disabled = true;
@@ -211,7 +221,6 @@ socket.on('your_secret_role', ({ role, room }) => {
     btnShareCard.disabled = false;
   }
 
-  // Agent handling
   if (role.isAgent) {
     btnAgentPower.classList.remove('hidden');
   } else {
@@ -226,9 +235,15 @@ function switchToGame() {
   screenLobby.classList.add('hidden');
   screenGameOver.classList.add('hidden');
   screenGame.classList.remove('hidden');
+  btnToggleChat.classList.remove('hidden');
 
-  hudRoom.textContent = `Комната ${myRoom}`;
+  updateRoomTitle();
+}
+
+function updateRoomTitle() {
+  hudRoom.textContent = `Otaq ${myRoom}`;
   hudRoom.className = `badge ${myRoom === 'A' ? 'badge-blue' : 'badge-red'}`;
+  chatHeaderRoomTitle.textContent = `Otaq ${myRoom} Çatı`;
 }
 
 // Touch & Hold Card Reveal
@@ -257,7 +272,6 @@ secretCard.addEventListener('touchend', (e) => {
 socket.on('room_state_update', (state) => {
   roomState = state;
 
-  // If in Lobby
   if (state.gameState === 'LOBBY') {
     playerCountEl.textContent = state.players.length;
     lobbyPlayerList.innerHTML = '';
@@ -265,8 +279,8 @@ socket.on('room_state_update', (state) => {
       const div = document.createElement('div');
       div.className = 'player-item';
       div.innerHTML = `
-        <span><strong>${escapeHtml(p.name)}</strong> ${p.id === myPlayerId ? '<span style="color:#60a5fa;">(Вы)</span>' : ''}</span>
-        ${p.isHost ? '<span class="badge badge-gold">Хост</span>' : ''}
+        <span><strong>${escapeHtml(p.name)}</strong> ${p.id === myPlayerId ? '<span style="color:#60a5fa;">(Siz)</span>' : ''}</span>
+        ${p.isHost ? '<span class="badge badge-gold">Host</span>' : ''}
       `;
       lobbyPlayerList.appendChild(div);
     });
@@ -274,24 +288,28 @@ socket.on('room_state_update', (state) => {
     if (btnStartGame) {
       btnStartGame.disabled = (state.players.length < 4);
       btnStartGame.textContent = state.players.length < 4 
-        ? `Нужно минимум 4 игрока (${state.players.length}/4)` 
-        : 'Начать игру 🚀';
+        ? `Ən azı 4 oyunçu lazımdır (${state.players.length}/4)` 
+        : 'Oyunu Başlat 🚀';
     }
   }
 
-  // If in Playing Game
   if (state.gameState === 'PLAYING') {
     hudRound.textContent = `${state.currentRound} / ${state.settings.rounds}`;
 
-    // Find my updated room (in case of hostage swap)
     const me = state.players.find(p => p.id === myPlayerId);
     if (me && me.room) {
       if (myRoom !== me.room) {
         myRoom = me.room;
-        hudRoom.textContent = `Комната ${myRoom}`;
-        hudRoom.className = `badge ${myRoom === 'A' ? 'badge-blue' : 'badge-red'}`;
+        updateRoomTitle();
         Sound.playAlert();
-        showToast(`Вы перешли в Комнату ${myRoom}!`);
+        showToast(`Siz Otaq ${myRoom}-yə keçdiniz!`);
+
+        // Add notice to chat
+        appendChatMessage({
+          senderName: 'SİSTEM',
+          text: `Siz Otaq ${myRoom}-yə keçdiniz. İndi bu otaqdakılarla danışırsınız.`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }, true);
       }
 
       if (me.isLeader) {
@@ -315,7 +333,7 @@ function renderRoomPlayers(state) {
   roomPlayersList.innerHTML = '';
 
   roomMembers.forEach(p => {
-    if (p.id === myPlayerId) return; // don't list yourself
+    if (p.id === myPlayerId) return;
 
     const row = document.createElement('div');
     row.className = `selectable-player-row ${selectedTargetIds.has(p.id) ? 'selected' : ''}`;
@@ -331,12 +349,11 @@ function renderRoomPlayers(state) {
       </div>
       <div>
         <button class="vote-btn ${hasVotedForHim ? 'voted' : ''}" data-vote-id="${p.id}">
-          ${hasVotedForHim ? '✓ Ваш голос' : 'Голос в лидеры'}
+          ${hasVotedForHim ? '✓ Səsiniz' : 'Lider et'}
         </button>
       </div>
     `;
 
-    // Checkbox toggle
     const checkbox = row.querySelector('input[type="checkbox"]');
     checkbox.addEventListener('change', (e) => {
       if (e.target.checked) {
@@ -348,7 +365,6 @@ function renderRoomPlayers(state) {
       }
     });
 
-    // Vote button
     const voteBtn = row.querySelector('.vote-btn');
     voteBtn.addEventListener('click', () => {
       socket.emit('vote_leader', { candidateId: p.id });
@@ -390,7 +406,7 @@ function renderLeaderPanel(state) {
       const selectedBoxes = Array.from(leaderHostageSelection.querySelectorAll('input:checked')).map(i => i.value);
       if (selectedBoxes.length > maxHostages) {
         input.checked = false;
-        return showToast(`Лимит: можно выбрать не более ${maxHostages} заложников!`);
+        return showToast(`Maksimum ${maxHostages} girov seçə bilərsiniz!`);
       }
       socket.emit('select_hostages', { hostageIds: selectedBoxes });
     });
@@ -416,34 +432,34 @@ socket.on('timer_tick', ({ timeRemaining }) => {
 // 5. Hostages Swapped Event
 socket.on('hostages_swapped', ({ fromAtoB, fromBtoA }) => {
   Sound.playAlert();
-  let msg = `🔄 ОБМЕН ЗАЛОЖНИКАМИ!\n`;
-  if (fromAtoB.length) msg += `Из А в Б: ${fromAtoB.join(', ')}\n`;
-  if (fromBtoA.length) msg += `Из Б в А: ${fromBtoA.join(', ')}`;
+  let msg = `🔄 GİROV DƏYİŞİKLİYİ BAŞ VERDİ!\n`;
+  if (fromAtoB.length) msg += `A-dan B-yə: ${fromAtoB.join(', ')}\n`;
+  if (fromBtoA.length) msg += `B-dən A-ya: ${fromBtoA.join(', ')}`;
   showToast(msg);
 });
 
 // 6. Share Actions
 btnShareColor.addEventListener('click', () => {
-  if (selectedTargetIds.size === 0) return showToast('Выберите хотя бы одного игрока галочкой!');
+  if (selectedTargetIds.size === 0) return showToast('Ən azı 1 oyunçunu işarələyin!');
   socket.emit('request_share', {
     targetIds: Array.from(selectedTargetIds),
     type: 'color'
   });
-  showToast('Предложение показать цвет отправлено!');
+  showToast('Rəng göstərmək təklifi göndərildi!');
 });
 
 btnShareCard.addEventListener('click', () => {
-  if (selectedTargetIds.size === 0) return showToast('Выберите хотя бы одного игрока галочкой!');
+  if (selectedTargetIds.size === 0) return showToast('Ən azı 1 oyunçunu işarələyin!');
   socket.emit('request_share', {
     targetIds: Array.from(selectedTargetIds),
     type: 'card'
   });
-  showToast('Предложение показать карту отправлено!');
+  showToast('Kart göstərmək təklifi göndərildi!');
 });
 
 // Agent Interrogate Power
 btnAgentPower.addEventListener('click', () => {
-  if (selectedTargetIds.size !== 1) return showToast('Для допроса Агента выберите ровно ОДНУ цель галочкой!');
+  if (selectedTargetIds.size !== 1) return showToast('Agent dindirməsi üçün yalnız 1 nəfəri seçin!');
   const targetId = Array.from(selectedTargetIds)[0];
   socket.emit('agent_interrogate', { targetId });
 });
@@ -455,7 +471,7 @@ socket.on('agent_result', ({ targetName, success, message, data }) => {
     revealedPlayerName.textContent = targetName;
     revealedRoleTitle.textContent = data.roleName;
     revealedRoleDesc.textContent = data.desc;
-    revealedRoleBadge.textContent = data.team === 'blue' ? 'СИНЯЯ КОМАНДА' : 'КРАСНАЯ КОМАНДА';
+    revealedRoleBadge.textContent = data.team === 'blue' ? 'MAVİ KOMANDA' : 'QIRMIZI KOMANDA';
     revealedRoleBadge.className = `badge ${data.team === 'blue' ? 'badge-blue' : 'badge-red'}`;
     modalCardReveal.classList.remove('hidden');
     Sound.playCardFlip();
@@ -465,9 +481,9 @@ socket.on('agent_result', ({ targetName, success, message, data }) => {
 socket.on('agent_interrogated_you', ({ agentName, blocked }) => {
   Sound.playAlert();
   if (blocked) {
-    showToast(`🕵️ Агент ${agentName} пытался вас допросить, но вы Скромник!`);
+    showToast(`🕵️ Agent ${agentName} sizi dindirmək istədi, lakin siz Utancaqsınız!`);
   } else {
-    showToast(`🕵️ Агент ${agentName} принудительно посмотрел вашу карту!`);
+    showToast(`🕵️ Agent ${agentName} məcburi olaraq kartınıza baxdı!`);
   }
 });
 
@@ -476,8 +492,8 @@ socket.on('incoming_share_request', ({ reqId, fromName, type }) => {
   pendingIncomingReqId = reqId;
   Sound.playAlert();
 
-  shareModalTitle.textContent = type === 'color' ? 'Показ цвета команды' : 'Полный показ карты';
-  shareModalDesc.textContent = `Игрок ${fromName} предлагает взаимно поделиться ${type === 'color' ? 'цветом команды' : 'своей картой роли'}. Согласны?`;
+  shareModalTitle.textContent = type === 'color' ? 'Komanda Rəngi Paylaşımı' : 'Tam Kart Paylaşımı';
+  shareModalDesc.textContent = `${fromName} sizə qarşılıqlı olaraq ${type === 'color' ? 'komanda rəngini' : 'kart rolunu'} göstərməyi təklif edir. Razısınız?`;
   modalIncomingShare.classList.remove('hidden');
 });
 
@@ -498,17 +514,16 @@ btnDeclineShare.addEventListener('click', () => {
 });
 
 socket.on('share_rejected', ({ targetName }) => {
-  showToast(`Игрок ${targetName} отклонил обмен.`);
+  showToast(`${targetName} təklifi rədd etdi.`);
 });
 
-// 8. Share Revealed!
+// 8. Share Revealed
 socket.on('share_revealed', ({ fromPlayer, type, data }) => {
   if (type === 'color') {
-    // Show Fullscreen Color Flash
     const isBlue = (data.color === 'blue');
     overlayColorFlash.className = `color-flash-overlay ${isBlue ? 'color-flash-blue' : 'color-flash-red'}`;
-    flashColorName.textContent = isBlue ? 'СИНИЙ' : 'КРАСНЫЙ';
-    flashFromPlayer.textContent = `Цвет игрока: ${fromPlayer}`;
+    flashColorName.textContent = isBlue ? 'MAVİ' : 'QIRMIZI';
+    flashFromPlayer.textContent = `Oyunçunun rəngi: ${fromPlayer}`;
     overlayColorFlash.classList.remove('hidden');
     Sound.playAlert();
 
@@ -516,11 +531,10 @@ socket.on('share_revealed', ({ fromPlayer, type, data }) => {
       overlayColorFlash.classList.add('hidden');
     }, 3000);
   } else if (type === 'card') {
-    // Show Card Modal
     revealedPlayerName.textContent = fromPlayer;
     revealedRoleTitle.textContent = data.roleName;
     revealedRoleDesc.textContent = data.desc;
-    revealedRoleBadge.textContent = data.team === 'blue' ? 'СИНЯЯ КОМАНДА' : 'КРАСНАЯ КОМАНДА';
+    revealedRoleBadge.textContent = data.team === 'blue' ? 'MAVİ KOMANDA' : 'QIRMIZI KOMANDA';
     revealedRoleBadge.className = `badge ${data.team === 'blue' ? 'badge-blue' : 'badge-red'}`;
     modalCardReveal.classList.remove('hidden');
     Sound.playCardFlip();
@@ -531,9 +545,64 @@ btnCloseCardReveal.addEventListener('click', () => {
   modalCardReveal.classList.add('hidden');
 });
 
-// 9. Game Ended / Debrief
+// 9. In-Room Chat Handling
+btnToggleChat.addEventListener('click', () => {
+  isChatOpen = true;
+  modalRoomChat.classList.remove('hidden');
+  chatUnreadDot.classList.remove('active');
+  chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+  chatInput.focus();
+});
+
+btnCloseChat.addEventListener('click', () => {
+  isChatOpen = false;
+  modalRoomChat.classList.add('hidden');
+});
+
+chatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = chatInput.value.trim();
+  if (!text) return;
+  socket.emit('send_room_chat', { message: text });
+  chatInput.value = '';
+});
+
+socket.on('new_room_chat', (msg) => {
+  const isMine = (msg.senderId === myPlayerId);
+  const isSystem = (msg.senderId === 'system');
+
+  appendChatMessage(msg, isSystem, isMine);
+
+  if (!isChatOpen) {
+    chatUnreadDot.classList.add('active');
+    Sound.playAlert();
+  }
+});
+
+function appendChatMessage(msg, isSystem = false, isMine = false) {
+  const div = document.createElement('div');
+  if (isSystem) {
+    div.className = 'chat-bubble system';
+    div.textContent = msg.text;
+  } else {
+    div.className = `chat-bubble ${isMine ? 'mine' : 'other'}`;
+    div.innerHTML = `
+      <div class="chat-meta">
+        <strong>${isMine ? 'Siz' : escapeHtml(msg.senderName)}</strong>
+        <span>${msg.time}</span>
+      </div>
+      <div>${escapeHtml(msg.text)}</div>
+    `;
+  }
+  chatMessagesContainer.appendChild(div);
+  chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+}
+
+// 10. Game Ended / Debrief
 socket.on('game_ended', (result) => {
   screenGame.classList.add('hidden');
+  btnToggleChat.classList.add('hidden');
+  modalRoomChat.classList.add('hidden');
   screenGameOver.classList.remove('hidden');
 
   gameOverTitle.textContent = result.title;
@@ -547,15 +616,14 @@ socket.on('game_ended', (result) => {
     Sound.playSafe();
   }
 
-  // Populate debrief table
   debriefList.innerHTML = '';
   result.playersDebrief.forEach(p => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${escapeHtml(p.name)}</strong></td>
-      <td>Комната ${p.room}</td>
+      <td>Otaq ${p.room}</td>
       <td>${escapeHtml(p.role.name)}</td>
-      <td><span class="badge ${p.role.team === 'blue' ? 'badge-blue' : 'badge-red'}">${p.role.team === 'blue' ? 'Синие' : 'Красные'}</span></td>
+      <td><span class="badge ${p.role.team === 'blue' ? 'badge-blue' : 'badge-red'}">${p.role.team === 'blue' ? 'Mavi' : 'Qırmızı'}</span></td>
     `;
     debriefList.appendChild(tr);
   });
