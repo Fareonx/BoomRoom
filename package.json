@@ -1,0 +1,18 @@
+{
+  "name": "two-rooms-and-a-boom",
+  "version": "1.0.0",
+  "description": "Two Rooms and a Boom - Online / Party Web Game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["party-game", "social-deduction", "two-rooms-and-a-boom", "socketio"],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.4"
+  }
+}

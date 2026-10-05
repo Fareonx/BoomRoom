@@ -1,0 +1,578 @@
+import * as Sound from './sound.js';
+
+const socket = io();
+
+// State
+let myPlayerId = null;
+let currentRoomCode = null;
+let isHost = false;
+let myRole = null;
+let myRoom = null;
+let roomState = null;
+let selectedTargetIds = new Set();
+let pendingIncomingReqId = null;
+
+// DOM Elements
+const screenAuth = document.getElementById('screen-auth');
+const screenLobby = document.getElementById('screen-lobby');
+const screenGame = document.getElementById('screen-game');
+const screenGameOver = document.getElementById('screen-game-over');
+
+const playerNameInput = document.getElementById('player-name');
+const roomCodeInput = document.getElementById('room-code-input');
+const btnJoinRoom = document.getElementById('btn-join-room');
+const btnCreateRoom = document.getElementById('btn-create-room');
+
+const lobbyRoomCode = document.getElementById('lobby-room-code');
+const lobbyPlayerList = document.getElementById('lobby-player-list');
+const playerCountEl = document.getElementById('player-count');
+const hostSettingsPanel = document.getElementById('host-settings');
+const btnStartGame = document.getElementById('btn-start-game');
+const waitingForHostMsg = document.getElementById('waiting-for-host-msg');
+
+const settingRounds = document.getElementById('setting-rounds');
+const roleToggleSpies = document.getElementById('role-toggle-spies');
+const roleToggleSpecial = document.getElementById('role-toggle-special');
+
+const hudRound = document.getElementById('hud-round');
+const hudTimer = document.getElementById('hud-timer');
+const hudRoom = document.getElementById('hud-room');
+
+const secretCard = document.getElementById('secret-card');
+const cardTeamBadge = document.getElementById('card-team-badge');
+const cardRoleName = document.getElementById('card-role-name');
+const cardRoleDesc = document.getElementById('card-role-desc');
+const cardApparentNote = document.getElementById('card-apparent-note');
+
+const roomPlayersList = document.getElementById('room-players-list');
+const roomMemberCount = document.getElementById('room-member-count');
+const youAreLeaderBadge = document.getElementById('you-are-leader-badge');
+const shyWarning = document.getElementById('shy-warning');
+
+const btnShareColor = document.getElementById('btn-share-color');
+const btnShareCard = document.getElementById('btn-share-card');
+const btnAgentPower = document.getElementById('btn-agent-power');
+
+const leaderPanel = document.getElementById('leader-panel');
+const hostagesNeededCount = document.getElementById('hostages-needed-count');
+const leaderHostageSelection = document.getElementById('leader-hostage-selection');
+
+const gameOverTitle = document.getElementById('game-over-title');
+const gameOverIcon = document.getElementById('game-over-icon');
+const gameOverMessage = document.getElementById('game-over-message');
+const debriefList = document.getElementById('debrief-list');
+const btnRestartLobby = document.getElementById('btn-restart-lobby');
+
+// Modals
+const modalIncomingShare = document.getElementById('modal-incoming-share');
+const shareModalIcon = document.getElementById('share-modal-icon');
+const shareModalTitle = document.getElementById('share-modal-title');
+const shareModalDesc = document.getElementById('share-modal-desc');
+const btnAcceptShare = document.getElementById('btn-accept-share');
+const btnDeclineShare = document.getElementById('btn-decline-share');
+
+const modalCardReveal = document.getElementById('modal-card-reveal');
+const revealedPlayerName = document.getElementById('revealed-player-name');
+const revealedRoleBadge = document.getElementById('revealed-role-badge');
+const revealedRoleTitle = document.getElementById('revealed-role-title');
+const revealedRoleDesc = document.getElementById('revealed-role-desc');
+const btnCloseCardReveal = document.getElementById('btn-close-card-reveal');
+
+const overlayColorFlash = document.getElementById('overlay-color-flash');
+const flashColorName = document.getElementById('flash-color-name');
+const flashFromPlayer = document.getElementById('flash-from-player');
+const toastEl = document.getElementById('toast');
+
+// Auto-fill player name from localStorage if exists
+if (localStorage.getItem('boom_player_name')) {
+  playerNameInput.value = localStorage.getItem('boom_player_name');
+}
+
+function showToast(msg) {
+  toastEl.textContent = msg;
+  toastEl.style.opacity = '1';
+  setTimeout(() => {
+    toastEl.style.opacity = '0';
+  }, 3000);
+}
+
+// 1. Join / Create
+btnCreateRoom.addEventListener('click', () => {
+  const name = playerNameInput.value.trim() || 'Командир';
+  localStorage.setItem('boom_player_name', name);
+  socket.emit('create_room', { playerName: name });
+});
+
+btnJoinRoom.addEventListener('click', () => {
+  const name = playerNameInput.value.trim() || 'Агент';
+  const code = roomCodeInput.value.trim().toUpperCase();
+  if (!code) return showToast('Введите 4-значный код комнаты!');
+  localStorage.setItem('boom_player_name', name);
+  socket.emit('join_room', { roomCode: code, playerName: name });
+});
+
+// Socket listeners for Auth
+socket.on('room_created', (data) => {
+  myPlayerId = data.playerId;
+  currentRoomCode = data.roomCode;
+  isHost = true;
+  switchToLobby();
+});
+
+socket.on('room_joined', (data) => {
+  myPlayerId = data.playerId;
+  currentRoomCode = data.roomCode;
+  isHost = data.isHost;
+  switchToLobby();
+});
+
+socket.on('error_message', (msg) => {
+  showToast(msg);
+});
+
+function switchToLobby() {
+  screenAuth.classList.add('hidden');
+  screenGame.classList.add('hidden');
+  screenGameOver.classList.add('hidden');
+  screenLobby.classList.remove('hidden');
+
+  lobbyRoomCode.textContent = currentRoomCode;
+
+  if (isHost) {
+    hostSettingsPanel.classList.remove('hidden');
+    btnStartGame.classList.remove('hidden');
+    waitingForHostMsg.classList.add('hidden');
+  } else {
+    hostSettingsPanel.classList.add('hidden');
+    btnStartGame.classList.add('hidden');
+    waitingForHostMsg.classList.remove('hidden');
+  }
+}
+
+// Host Settings change
+function sendHostSettings() {
+  if (!isHost) return;
+  const rounds = parseInt(settingRounds.value, 10);
+  const roundTimes = rounds === 2 ? [180, 60] : rounds === 4 ? [240, 180, 120, 60] : [180, 120, 60];
+  const hostagesPerRound = Array(rounds).fill(1);
+
+  socket.emit('update_settings', {
+    settings: {
+      rounds,
+      roundTimes,
+      hostagesPerRound,
+      advancedRoles: {
+        spies: roleToggleSpies.checked,
+        shyGuy: roleToggleSpecial.checked,
+        agent: roleToggleSpecial.checked
+      }
+    }
+  });
+}
+
+settingRounds.addEventListener('change', sendHostSettings);
+roleToggleSpies.addEventListener('change', sendHostSettings);
+roleToggleSpecial.addEventListener('change', sendHostSettings);
+
+btnStartGame.addEventListener('click', () => {
+  socket.emit('start_game');
+});
+
+// 2. Secret Role Received
+socket.on('your_secret_role', ({ role, room }) => {
+  myRole = role;
+  myRoom = room;
+
+  // Setup UI
+  secretCard.className = 'secret-role-card';
+  secretCard.classList.add(role.team === 'blue' ? 'team-blue' : 'team-red');
+
+  cardTeamBadge.textContent = role.team === 'blue' ? 'СИНЯЯ КОМАНДА' : 'КРАСНАЯ КОМАНДА';
+  cardTeamBadge.className = `badge ${role.team === 'blue' ? 'badge-blue' : 'badge-red'}`;
+  cardRoleName.textContent = role.name;
+  cardRoleDesc.textContent = role.desc;
+
+  if (role.roleId === 'red_spy') {
+    cardApparentNote.textContent = '🕵️ Ваш цвет при Color Share отображается как СИНИЙ!';
+  } else if (role.roleId === 'blue_spy') {
+    cardApparentNote.textContent = '🕵️ Ваш цвет при Color Share отображается как КРАСНЫЙ!';
+  } else {
+    cardApparentNote.textContent = '';
+  }
+
+  // Shy Guy handling
+  if (role.isShy) {
+    shyWarning.classList.remove('hidden');
+    btnShareColor.disabled = true;
+    btnShareCard.disabled = true;
+  } else {
+    shyWarning.classList.add('hidden');
+    btnShareColor.disabled = false;
+    btnShareCard.disabled = false;
+  }
+
+  // Agent handling
+  if (role.isAgent) {
+    btnAgentPower.classList.remove('hidden');
+  } else {
+    btnAgentPower.classList.add('hidden');
+  }
+
+  switchToGame();
+});
+
+function switchToGame() {
+  screenAuth.classList.add('hidden');
+  screenLobby.classList.add('hidden');
+  screenGameOver.classList.add('hidden');
+  screenGame.classList.remove('hidden');
+
+  hudRoom.textContent = `Комната ${myRoom}`;
+  hudRoom.className = `badge ${myRoom === 'A' ? 'badge-blue' : 'badge-red'}`;
+}
+
+// Touch & Hold Card Reveal
+function revealCard() {
+  Sound.playCardFlip();
+  secretCard.classList.add('revealed');
+}
+
+function hideCard() {
+  secretCard.classList.remove('revealed');
+}
+
+secretCard.addEventListener('mousedown', revealCard);
+secretCard.addEventListener('mouseup', hideCard);
+secretCard.addEventListener('mouseleave', hideCard);
+secretCard.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  revealCard();
+});
+secretCard.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  hideCard();
+});
+
+// 3. Room State Update
+socket.on('room_state_update', (state) => {
+  roomState = state;
+
+  // If in Lobby
+  if (state.gameState === 'LOBBY') {
+    playerCountEl.textContent = state.players.length;
+    lobbyPlayerList.innerHTML = '';
+    state.players.forEach(p => {
+      const div = document.createElement('div');
+      div.className = 'player-item';
+      div.innerHTML = `
+        <span><strong>${escapeHtml(p.name)}</strong> ${p.id === myPlayerId ? '<span style="color:#60a5fa;">(Вы)</span>' : ''}</span>
+        ${p.isHost ? '<span class="badge badge-gold">Хост</span>' : ''}
+      `;
+      lobbyPlayerList.appendChild(div);
+    });
+
+    if (btnStartGame) {
+      btnStartGame.disabled = (state.players.length < 4);
+      btnStartGame.textContent = state.players.length < 4 
+        ? `Нужно минимум 4 игрока (${state.players.length}/4)` 
+        : 'Начать игру 🚀';
+    }
+  }
+
+  // If in Playing Game
+  if (state.gameState === 'PLAYING') {
+    hudRound.textContent = `${state.currentRound} / ${state.settings.rounds}`;
+
+    // Find my updated room (in case of hostage swap)
+    const me = state.players.find(p => p.id === myPlayerId);
+    if (me && me.room) {
+      if (myRoom !== me.room) {
+        myRoom = me.room;
+        hudRoom.textContent = `Комната ${myRoom}`;
+        hudRoom.className = `badge ${myRoom === 'A' ? 'badge-blue' : 'badge-red'}`;
+        Sound.playAlert();
+        showToast(`Вы перешли в Комнату ${myRoom}!`);
+      }
+
+      if (me.isLeader) {
+        youAreLeaderBadge.classList.remove('hidden');
+        leaderPanel.classList.remove('hidden');
+      } else {
+        youAreLeaderBadge.classList.add('hidden');
+        leaderPanel.classList.add('hidden');
+      }
+    }
+
+    renderRoomPlayers(state);
+    renderLeaderPanel(state);
+  }
+});
+
+function renderRoomPlayers(state) {
+  const roomMembers = state.players.filter(p => p.room === myRoom);
+  roomMemberCount.textContent = roomMembers.length;
+
+  roomPlayersList.innerHTML = '';
+
+  roomMembers.forEach(p => {
+    if (p.id === myPlayerId) return; // don't list yourself
+
+    const row = document.createElement('div');
+    row.className = `selectable-player-row ${selectedTargetIds.has(p.id) ? 'selected' : ''}`;
+
+    const isSelected = selectedTargetIds.has(p.id);
+    const me = state.players.find(pl => pl.id === myPlayerId);
+    const hasVotedForHim = (me && me.votedFor === p.id);
+
+    row.innerHTML = `
+      <div class="player-info-left">
+        <input type="checkbox" data-id="${p.id}" ${isSelected ? 'checked' : ''}>
+        <span><strong>${escapeHtml(p.name)}</strong> ${p.isLeader ? '👑' : ''}</span>
+      </div>
+      <div>
+        <button class="vote-btn ${hasVotedForHim ? 'voted' : ''}" data-vote-id="${p.id}">
+          ${hasVotedForHim ? '✓ Ваш голос' : 'Голос в лидеры'}
+        </button>
+      </div>
+    `;
+
+    // Checkbox toggle
+    const checkbox = row.querySelector('input[type="checkbox"]');
+    checkbox.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        selectedTargetIds.add(p.id);
+        row.classList.add('selected');
+      } else {
+        selectedTargetIds.delete(p.id);
+        row.classList.remove('selected');
+      }
+    });
+
+    // Vote button
+    const voteBtn = row.querySelector('.vote-btn');
+    voteBtn.addEventListener('click', () => {
+      socket.emit('vote_leader', { candidateId: p.id });
+    });
+
+    roomPlayersList.appendChild(row);
+  });
+}
+
+function renderLeaderPanel(state) {
+  const me = state.players.find(p => p.id === myPlayerId);
+  if (!me || !me.isLeader) return;
+
+  const currentRound = state.currentRound;
+  const maxHostages = state.settings.hostagesPerRound[currentRound - 1] || 1;
+  hostagesNeededCount.textContent = maxHostages;
+
+  const roomData = myRoom === 'A' ? state.roomA : state.roomB;
+  const currentSelected = roomData.selectedHostages || [];
+
+  const eligibleHostages = state.players.filter(p => p.room === myRoom && p.id !== myPlayerId);
+
+  leaderHostageSelection.innerHTML = '';
+  eligibleHostages.forEach(p => {
+    const isHostage = currentSelected.includes(p.id);
+    const label = document.createElement('label');
+    label.style.display = 'flex';
+    label.style.alignItems = 'center';
+    label.style.gap = '8px';
+    label.style.cursor = 'pointer';
+    label.style.fontSize = '0.9rem';
+    label.innerHTML = `
+      <input type="checkbox" value="${p.id}" ${isHostage ? 'checked' : ''} style="width: auto;">
+      <span>${escapeHtml(p.name)}</span>
+    `;
+
+    const input = label.querySelector('input');
+    input.addEventListener('change', () => {
+      const selectedBoxes = Array.from(leaderHostageSelection.querySelectorAll('input:checked')).map(i => i.value);
+      if (selectedBoxes.length > maxHostages) {
+        input.checked = false;
+        return showToast(`Лимит: можно выбрать не более ${maxHostages} заложников!`);
+      }
+      socket.emit('select_hostages', { hostageIds: selectedBoxes });
+    });
+
+    leaderHostageSelection.appendChild(label);
+  });
+}
+
+// 4. Timer Tick
+socket.on('timer_tick', ({ timeRemaining }) => {
+  const mins = Math.floor(timeRemaining / 60);
+  const secs = timeRemaining % 60;
+  hudTimer.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+  if (timeRemaining <= 10) {
+    hudTimer.classList.add('timer-warning');
+    Sound.playTick();
+  } else {
+    hudTimer.classList.remove('timer-warning');
+  }
+});
+
+// 5. Hostages Swapped Event
+socket.on('hostages_swapped', ({ fromAtoB, fromBtoA }) => {
+  Sound.playAlert();
+  let msg = `🔄 ОБМЕН ЗАЛОЖНИКАМИ!\n`;
+  if (fromAtoB.length) msg += `Из А в Б: ${fromAtoB.join(', ')}\n`;
+  if (fromBtoA.length) msg += `Из Б в А: ${fromBtoA.join(', ')}`;
+  showToast(msg);
+});
+
+// 6. Share Actions
+btnShareColor.addEventListener('click', () => {
+  if (selectedTargetIds.size === 0) return showToast('Выберите хотя бы одного игрока галочкой!');
+  socket.emit('request_share', {
+    targetIds: Array.from(selectedTargetIds),
+    type: 'color'
+  });
+  showToast('Предложение показать цвет отправлено!');
+});
+
+btnShareCard.addEventListener('click', () => {
+  if (selectedTargetIds.size === 0) return showToast('Выберите хотя бы одного игрока галочкой!');
+  socket.emit('request_share', {
+    targetIds: Array.from(selectedTargetIds),
+    type: 'card'
+  });
+  showToast('Предложение показать карту отправлено!');
+});
+
+// Agent Interrogate Power
+btnAgentPower.addEventListener('click', () => {
+  if (selectedTargetIds.size !== 1) return showToast('Для допроса Агента выберите ровно ОДНУ цель галочкой!');
+  const targetId = Array.from(selectedTargetIds)[0];
+  socket.emit('agent_interrogate', { targetId });
+});
+
+socket.on('agent_result', ({ targetName, success, message, data }) => {
+  if (!success) {
+    showToast(message);
+  } else {
+    revealedPlayerName.textContent = targetName;
+    revealedRoleTitle.textContent = data.roleName;
+    revealedRoleDesc.textContent = data.desc;
+    revealedRoleBadge.textContent = data.team === 'blue' ? 'СИНЯЯ КОМАНДА' : 'КРАСНАЯ КОМАНДА';
+    revealedRoleBadge.className = `badge ${data.team === 'blue' ? 'badge-blue' : 'badge-red'}`;
+    modalCardReveal.classList.remove('hidden');
+    Sound.playCardFlip();
+  }
+});
+
+socket.on('agent_interrogated_you', ({ agentName, blocked }) => {
+  Sound.playAlert();
+  if (blocked) {
+    showToast(`🕵️ Агент ${agentName} пытался вас допросить, но вы Скромник!`);
+  } else {
+    showToast(`🕵️ Агент ${agentName} принудительно посмотрел вашу карту!`);
+  }
+});
+
+// 7. Incoming Share Request Modal
+socket.on('incoming_share_request', ({ reqId, fromName, type }) => {
+  pendingIncomingReqId = reqId;
+  Sound.playAlert();
+
+  shareModalTitle.textContent = type === 'color' ? 'Показ цвета команды' : 'Полный показ карты';
+  shareModalDesc.textContent = `Игрок ${fromName} предлагает взаимно поделиться ${type === 'color' ? 'цветом команды' : 'своей картой роли'}. Согласны?`;
+  modalIncomingShare.classList.remove('hidden');
+});
+
+btnAcceptShare.addEventListener('click', () => {
+  if (pendingIncomingReqId) {
+    socket.emit('respond_share_request', { reqId: pendingIncomingReqId, accepted: true });
+    modalIncomingShare.classList.add('hidden');
+    pendingIncomingReqId = null;
+  }
+});
+
+btnDeclineShare.addEventListener('click', () => {
+  if (pendingIncomingReqId) {
+    socket.emit('respond_share_request', { reqId: pendingIncomingReqId, accepted: false });
+    modalIncomingShare.classList.add('hidden');
+    pendingIncomingReqId = null;
+  }
+});
+
+socket.on('share_rejected', ({ targetName }) => {
+  showToast(`Игрок ${targetName} отклонил обмен.`);
+});
+
+// 8. Share Revealed!
+socket.on('share_revealed', ({ fromPlayer, type, data }) => {
+  if (type === 'color') {
+    // Show Fullscreen Color Flash
+    const isBlue = (data.color === 'blue');
+    overlayColorFlash.className = `color-flash-overlay ${isBlue ? 'color-flash-blue' : 'color-flash-red'}`;
+    flashColorName.textContent = isBlue ? 'СИНИЙ' : 'КРАСНЫЙ';
+    flashFromPlayer.textContent = `Цвет игрока: ${fromPlayer}`;
+    overlayColorFlash.classList.remove('hidden');
+    Sound.playAlert();
+
+    setTimeout(() => {
+      overlayColorFlash.classList.add('hidden');
+    }, 3000);
+  } else if (type === 'card') {
+    // Show Card Modal
+    revealedPlayerName.textContent = fromPlayer;
+    revealedRoleTitle.textContent = data.roleName;
+    revealedRoleDesc.textContent = data.desc;
+    revealedRoleBadge.textContent = data.team === 'blue' ? 'СИНЯЯ КОМАНДА' : 'КРАСНАЯ КОМАНДА';
+    revealedRoleBadge.className = `badge ${data.team === 'blue' ? 'badge-blue' : 'badge-red'}`;
+    modalCardReveal.classList.remove('hidden');
+    Sound.playCardFlip();
+  }
+});
+
+btnCloseCardReveal.addEventListener('click', () => {
+  modalCardReveal.classList.add('hidden');
+});
+
+// 9. Game Ended / Debrief
+socket.on('game_ended', (result) => {
+  screenGame.classList.add('hidden');
+  screenGameOver.classList.remove('hidden');
+
+  gameOverTitle.textContent = result.title;
+  gameOverMessage.textContent = result.message;
+
+  if (result.winner === 'red') {
+    gameOverIcon.textContent = '💥';
+    Sound.playBoom();
+  } else {
+    gameOverIcon.textContent = '🛡️';
+    Sound.playSafe();
+  }
+
+  // Populate debrief table
+  debriefList.innerHTML = '';
+  result.playersDebrief.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${escapeHtml(p.name)}</strong></td>
+      <td>Комната ${p.room}</td>
+      <td>${escapeHtml(p.role.name)}</td>
+      <td><span class="badge ${p.role.team === 'blue' ? 'badge-blue' : 'badge-red'}">${p.role.team === 'blue' ? 'Синие' : 'Красные'}</span></td>
+    `;
+    debriefList.appendChild(tr);
+  });
+
+  if (isHost) {
+    btnRestartLobby.classList.remove('hidden');
+  } else {
+    btnRestartLobby.classList.add('hidden');
+  }
+});
+
+btnRestartLobby.addEventListener('click', () => {
+  socket.emit('restart_game');
+});
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}

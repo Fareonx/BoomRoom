@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Two Rooms and a Boom | Две комнаты и бум</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="container">
+
+    <!-- 1. AUTH / JOIN SCREEN -->
+    <div id="screen-auth" class="card">
+      <h1 class="logo-title">💣 TWO ROOMS & BOOM</h1>
+      <p class="subtitle">Психологическая пати-игра со скрытыми ролями</p>
+
+      <div class="input-group">
+        <label for="player-name">Ваше имя / никнейм</label>
+        <input type="text" id="player-name" placeholder="Например: Алекс" maxlength="16">
+      </div>
+
+      <div class="input-group" style="margin-top: 20px;">
+        <label for="room-code-input">Код комнаты (для входа)</label>
+        <input type="text" id="room-code-input" placeholder="например: BOOM" maxlength="4" style="text-transform: uppercase; font-family: monospace; font-size: 1.2rem; letter-spacing: 2px;">
+      </div>
+
+      <div class="btn-group">
+        <button id="btn-join-room" class="btn btn-primary">Войти по коду</button>
+        <button id="btn-create-room" class="btn btn-secondary">Создать игру</button>
+      </div>
+    </div>
+
+    <!-- 2. LOBBY SCREEN -->
+    <div id="screen-lobby" class="card hidden">
+      <h1 class="logo-title">Комната ожидания</h1>
+      
+      <div class="room-code-display">
+        <div style="font-size: 0.8rem; color: #94a3b8;">КОД ДЛЯ ДРУЗЕЙ:</div>
+        <div id="lobby-room-code" class="code">----</div>
+        <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">Друзья вводят этот код на своих телефонах</div>
+      </div>
+
+      <h3>Игроки в лобби (<span id="player-count">0</span>)</h3>
+      <div id="lobby-player-list" class="player-list"></div>
+
+      <!-- Host Settings Panel -->
+      <div id="host-settings" class="card" style="background: rgba(15, 23, 42, 0.6); padding: 14px; margin-top: 14px;">
+        <h4 style="margin-bottom: 12px; font-size: 0.95rem; color: #60a5fa;">⚙️ Настройки хоста</h4>
+        
+        <div class="input-group">
+          <label>Количество раундов</label>
+          <select id="setting-rounds">
+            <option value="3" selected>3 раунда (Классика)</option>
+            <option value="2">2 раунда (Быстрая)</option>
+            <option value="4">4 раунда (Долгая)</option>
+          </select>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <label style="margin-bottom: 8px;">Особые роли</label>
+          <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; text-transform: none;">
+              <input type="checkbox" id="role-toggle-spies" checked style="width: auto;">
+              🕵️ Шпионы (Красный и Синий с обманным цветом)
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; text-transform: none;">
+              <input type="checkbox" id="role-toggle-special" checked style="width: auto;">
+              🤐 Скромник (запрет шеринга) и 🔍 Агент (допрос)
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <button id="btn-start-game" class="btn btn-danger hidden">Начать игру 🚀</button>
+        <p id="waiting-for-host-msg" class="subtitle" style="margin-top: 10px;">Ожидание, пока хост запустит матч...</p>
+      </div>
+    </div>
+
+    <!-- 3. MAIN GAME SCREEN -->
+    <div id="screen-game" class="hidden">
+      
+      <!-- Top HUD: Round, Room, Timer -->
+      <div class="card top-hud">
+        <div class="hud-item">
+          <span class="hud-label">Раунд</span>
+          <span id="hud-round" class="hud-value">1 / 3</span>
+        </div>
+
+        <div class="hud-item" style="align-items: center;">
+          <span class="hud-label">Таймер</span>
+          <div id="hud-timer" class="timer-box">03:00</div>
+        </div>
+
+        <div class="hud-item" style="align-items: flex-end;">
+          <span class="hud-label">Ваша комната</span>
+          <span id="hud-room" class="badge badge-gold" style="font-size: 0.95rem; margin-top: 2px;">Комната А</span>
+        </div>
+      </div>
+
+      <!-- Secret Role Card (Touch & Hold) -->
+      <div class="role-card-container">
+        <div id="secret-card" class="secret-role-card">
+          <div class="card-hint">
+            <span style="font-size: 2rem;">🎴</span>
+            <strong>Зажмите пальцем, чтобы посмотреть роль</strong>
+            <span style="font-size: 0.75rem;">(Скрыто от глаз соседей)</span>
+          </div>
+          <div class="card-content">
+            <span id="card-team-badge" class="badge">Синяя команда</span>
+            <div id="card-role-name" class="role-title">Президент</div>
+            <p id="card-role-desc" class="role-desc">Описание цели...</p>
+            <div id="card-apparent-note" style="font-size: 0.75rem; color: #94a3b8; margin-top: 6px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interaction and Sharing Panel -->
+      <div class="card sharing-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3>Люди в вашей комнате (<span id="room-member-count">0</span>)</h3>
+          <span id="you-are-leader-badge" class="badge badge-gold hidden">👑 ВЫ ЛИДЕР</span>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
+          Отметьте игроков галочкой для показа карты или цвета:
+        </p>
+
+        <!-- Room Members List with Checkboxes & Vote Buttons -->
+        <div id="room-players-list" class="room-players-table"></div>
+
+        <!-- Action Buttons -->
+        <div style="margin-top: 16px;">
+          <div id="shy-warning" class="hidden" style="padding: 10px; border-radius: 8px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; font-size: 0.85rem; text-align: center; margin-bottom: 10px;">
+            ⚠️ <strong>Внимание Скромник:</strong> вам запрещено показывать карту или цвет! Кнопки показа заблокированы.
+          </div>
+
+          <div class="btn-group">
+            <button id="btn-share-color" class="btn btn-secondary">
+              🎨 Показать цвет
+            </button>
+            <button id="btn-share-card" class="btn btn-primary">
+              🎴 Показать карту
+            </button>
+          </div>
+
+          <!-- Agent Interrogation Button -->
+          <button id="btn-agent-power" class="btn btn-danger hidden" style="margin-top: 10px;">
+            🔍 Допрос Агента (1 раз за раунд)
+          </button>
+        </div>
+      </div>
+
+      <!-- Leader Panel (Only for elected leader) -->
+      <div id="leader-panel" class="card hidden" style="border: 1px solid var(--gold); background: rgba(245, 158, 11, 0.08);">
+        <h4 style="color: var(--gold); display: flex; align-items: center; gap: 6px;">
+          👑 Панель Лидера комнаты
+        </h4>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
+          Выберите заложников (<span id="hostages-needed-count">1</span> чел.) для отправки в другую комнату по окончании раунда:
+        </p>
+        <div id="leader-hostage-selection" style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;"></div>
+      </div>
+
+    </div>
+
+    <!-- 4. GAME OVER / DEBRIEF SCREEN -->
+    <div id="screen-game-over" class="card hidden">
+      <div id="game-over-banner" style="text-align: center; margin-bottom: 20px;">
+        <div id="game-over-icon" style="font-size: 3.5rem;">💥</div>
+        <h1 id="game-over-title" class="logo-title" style="font-size: 1.8rem;">БУМ! ПОБЕДА КРАСНЫХ!</h1>
+        <p id="game-over-message" class="subtitle" style="margin-top: 8px; font-size: 1rem; color: #e2e8f0;"></p>
+      </div>
+
+      <h3>Итоги и раскрытие всех ролей:</h3>
+      <table class="debrief-table">
+        <thead>
+          <tr>
+            <th>Игрок</th>
+            <th>Комната</th>
+            <th>Роль</th>
+            <th>Команда</th>
+          </tr>
+        </thead>
+        <tbody id="debrief-list"></tbody>
+      </table>
+
+      <button id="btn-restart-lobby" class="btn btn-primary hidden" style="margin-top: 24px;">
+        Вернуться в лобби 🔄
+      </button>
+    </div>
+
+  </div>
+
+  <!-- MODALS AND OVERLAYS -->
+
+  <!-- Incoming Share Request Modal -->
+  <div id="modal-incoming-share" class="overlay hidden">
+    <div class="modal-box">
+      <div style="font-size: 2.5rem; margin-bottom: 8px;" id="share-modal-icon">🤝</div>
+      <h3 id="share-modal-title">Предложение обмена</h3>
+      <p id="share-modal-desc" style="color: #cbd5e1; margin: 12px 0; font-size: 0.95rem;"></p>
+      <div class="btn-group">
+        <button id="btn-accept-share" class="btn btn-success">Принять</button>
+        <button id="btn-decline-share" class="btn btn-secondary">Отклонить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card Reveal Result Modal -->
+  <div id="modal-card-reveal" class="overlay hidden">
+    <div class="modal-box">
+      <div style="font-size: 2rem; margin-bottom: 6px;">🎴</div>
+      <h3 style="color: #94a3b8; font-size: 0.9rem;">КАРТА ИГРОКА: <span id="revealed-player-name" style="color: #fff; font-weight: bold;"></span></h3>
+      <div id="revealed-role-badge" class="badge" style="margin: 10px 0;"></div>
+      <h2 id="revealed-role-title" style="margin-bottom: 6px;"></h2>
+      <p id="revealed-role-desc" style="color: #cbd5e1; font-size: 0.85rem; line-height: 1.4;"></p>
+      <button id="btn-close-card-reveal" class="btn btn-secondary" style="margin-top: 18px;">Закрыть</button>
+    </div>
+  </div>
+
+  <!-- Fullscreen Color Flash Overlay -->
+  <div id="overlay-color-flash" class="color-flash-overlay hidden">
+    <div id="flash-color-name">СИНИЙ</div>
+    <div id="flash-from-player" style="font-size: 1rem; margin-top: 12px; font-weight: normal; opacity: 0.85;"></div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 10px 20px; border-radius: 9999px; font-size: 0.85rem; z-index: 999; box-shadow: 0 10px 25px rgba(0,0,0,0.5); pointer-events: none; transition: opacity 0.3s ease; opacity: 0;"></div>
+
+  <script type="module" src="client.js"></script>
+</body>
+</html>
