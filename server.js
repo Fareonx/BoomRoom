@@ -202,6 +202,8 @@ io.on('connection', (socket) => {
     room.roomB.votes = {};
     room.roomA.leaderId = null;
     room.roomB.leaderId = null;
+    room.roomA.lockedIn = false;
+    room.roomB.lockedIn = false;
 
     startRoundTimer(room);
     broadcastRoomState(currentRoomCode);
@@ -248,6 +250,32 @@ io.on('connection', (socket) => {
 
     roomData.selectedHostages = valid;
     broadcastRoomState(currentRoomCode);
+  });
+
+  // Lock Hostages
+  socket.on('lock_hostages', () => {
+    const room = rooms.get(currentRoomCode);
+    if (!room || room.gameState !== 'PLAYING') return;
+
+    const player = room.players.get(socket.id);
+    if (!player || !player.isLeader) return;
+
+    const roomData = player.room === 'A' ? room.roomA : room.roomB;
+    const maxHostages = room.settings.hostagesPerRound[room.currentRound - 1] || 1;
+    
+    // Only lock if they have the exact number of hostages, or if there aren't enough eligible players
+    const eligibleCount = Array.from(room.players.values()).filter(p => p.room === player.room && p.id !== player.id).length;
+    if (roomData.selectedHostages.length === Math.min(maxHostages, eligibleCount)) {
+      roomData.lockedIn = true;
+      
+      // If BOTH are locked in, slash timer to 5 seconds
+      if (room.roomA.lockedIn && room.roomB.lockedIn) {
+        if (room.roundTimeRemaining > 5) {
+          room.roundTimeRemaining = 5;
+        }
+      }
+      broadcastRoomState(currentRoomCode);
+    }
   });
 
   // Share Request
@@ -707,6 +735,8 @@ function handleRoundEnd(room) {
     });
     room.roomA.selectedHostages = [];
     room.roomB.selectedHostages = [];
+    room.roomA.lockedIn = false;
+    room.roomB.lockedIn = false;
 
     io.to(room.code).emit('round_advanced', {
       currentRound: room.currentRound,
@@ -853,11 +883,13 @@ function broadcastRoomState(roomCode) {
     roomA: {
       leaderId: room.roomA.leaderId,
       selectedHostages: room.roomA.selectedHostages,
+      lockedIn: room.roomA.lockedIn,
       playerCount: publicPlayers.filter(p => p.room === 'A').length
     },
     roomB: {
       leaderId: room.roomB.leaderId,
       selectedHostages: room.roomB.selectedHostages,
+      lockedIn: room.roomB.lockedIn,
       playerCount: publicPlayers.filter(p => p.room === 'B').length
     },
     gameResult: room.gameResult

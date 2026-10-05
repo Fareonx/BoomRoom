@@ -293,10 +293,16 @@ socket.on('room_state_update', (state) => {
     }
   }
 
-  if (state.gameState === 'PLAYING') {
-    hudRound.textContent = `${state.currentRound} / ${state.settings.rounds}`;
+    if (state.gameState === 'PLAYING') {
+      hudRound.textContent = `${state.currentRound} / ${state.settings.rounds}`;
 
-    const me = state.players.find(p => p.id === myPlayerId);
+      // Update HUD lock indicators
+      const hudLockA = document.getElementById('hud-lock-a');
+      const hudLockB = document.getElementById('hud-lock-b');
+      if (hudLockA) hudLockA.textContent = state.roomA.lockedIn ? '✅' : '⏳';
+      if (hudLockB) hudLockB.textContent = state.roomB.lockedIn ? '✅' : '⏳';
+
+      const me = state.players.find(p => p.id === myPlayerId);
     if (me && me.room) {
       if (myRoom !== me.room) {
         myRoom = me.room;
@@ -343,8 +349,8 @@ function renderRoomPlayers(state) {
     const hasVotedForHim = (me && me.votedFor === p.id);
 
     row.innerHTML = `
-      <div class="player-info-left">
-        <input type="checkbox" data-id="${p.id}" ${isSelected ? 'checked' : ''}>
+      <div class="player-info-left" style="pointer-events: none;">
+        <div class="selection-indicator"></div>
         <span><strong>${escapeHtml(p.name)}</strong> ${p.isLeader ? '👑' : ''}</span>
       </div>
       <div>
@@ -354,19 +360,20 @@ function renderRoomPlayers(state) {
       </div>
     `;
 
-    const checkbox = row.querySelector('input[type="checkbox"]');
-    checkbox.addEventListener('change', (e) => {
-      if (e.target.checked) {
-        selectedTargetIds.add(p.id);
-        row.classList.add('selected');
-      } else {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.vote-btn')) return;
+      if (selectedTargetIds.has(p.id)) {
         selectedTargetIds.delete(p.id);
         row.classList.remove('selected');
+      } else {
+        selectedTargetIds.add(p.id);
+        row.classList.add('selected');
       }
     });
 
     const voteBtn = row.querySelector('.vote-btn');
-    voteBtn.addEventListener('click', () => {
+    voteBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevent row click
       socket.emit('vote_leader', { candidateId: p.id });
     });
 
@@ -384,35 +391,63 @@ function renderLeaderPanel(state) {
 
   const roomData = myRoom === 'A' ? state.roomA : state.roomB;
   const currentSelected = roomData.selectedHostages || [];
-
   const eligibleHostages = state.players.filter(p => p.room === myRoom && p.id !== myPlayerId);
 
   leaderHostageSelection.innerHTML = '';
   eligibleHostages.forEach(p => {
     const isHostage = currentSelected.includes(p.id);
-    const label = document.createElement('label');
-    label.style.display = 'flex';
-    label.style.alignItems = 'center';
-    label.style.gap = '8px';
-    label.style.cursor = 'pointer';
-    label.style.fontSize = '0.9rem';
-    label.innerHTML = `
-      <input type="checkbox" value="${p.id}" ${isHostage ? 'checked' : ''} style="width: auto;">
-      <span>${escapeHtml(p.name)}</span>
+    const row = document.createElement('div');
+    row.className = `hostage-select-row ${isHostage ? 'selected' : ''}`;
+    row.dataset.id = p.id;
+    row.innerHTML = `
+      <div class="player-info-left" style="pointer-events: none;">
+        <div class="selection-indicator"></div>
+        <span><strong>${escapeHtml(p.name)}</strong></span>
+      </div>
     `;
 
-    const input = label.querySelector('input');
-    input.addEventListener('change', () => {
-      const selectedBoxes = Array.from(leaderHostageSelection.querySelectorAll('input:checked')).map(i => i.value);
-      if (selectedBoxes.length > maxHostages) {
-        input.checked = false;
-        return showToast(`Maksimum ${maxHostages} girov seçə bilərsiniz!`);
+    row.addEventListener('click', () => {
+      // Toggle logic
+      const currentlySelectedIds = Array.from(leaderHostageSelection.querySelectorAll('.hostage-select-row.selected')).map(el => el.dataset.id);
+      const amISelected = row.classList.contains('selected');
+      
+      if (!amISelected) {
+        if (currentlySelectedIds.length >= maxHostages) {
+          return showToast(`Maksimum ${maxHostages} girov seçə bilərsiniz!`);
+        }
+        row.classList.add('selected');
+        currentlySelectedIds.push(p.id);
+      } else {
+        row.classList.remove('selected');
+        const idx = currentlySelectedIds.indexOf(p.id);
+        if (idx > -1) currentlySelectedIds.splice(idx, 1);
       }
-      socket.emit('select_hostages', { hostageIds: selectedBoxes });
+
+      socket.emit('select_hostages', { hostageIds: currentlySelectedIds });
     });
 
-    leaderHostageSelection.appendChild(label);
+    leaderHostageSelection.appendChild(row);
   });
+
+  // Add Lock/Confirm button
+  const lockBtn = document.createElement('button');
+  lockBtn.className = 'btn btn-primary';
+  lockBtn.style.marginTop = '10px';
+  lockBtn.innerHTML = '✅ Seçimi Təsdiqlə (Göndər)';
+  
+  if (roomData.lockedIn) {
+    lockBtn.disabled = true;
+    lockBtn.innerHTML = '✅ Təsdiqləndi';
+    lockBtn.className = 'btn btn-success';
+  }
+  lockBtn.addEventListener('click', () => {
+    const currentlySelectedIds = Array.from(leaderHostageSelection.querySelectorAll('.hostage-select-row.selected')).map(el => el.dataset.id);
+    if (currentlySelectedIds.length !== maxHostages && eligibleHostages.length >= maxHostages) {
+      return showToast(`Tam olaraq ${maxHostages} girov seçməlisiniz!`);
+    }
+    socket.emit('lock_hostages');
+  });
+  leaderHostageSelection.appendChild(lockBtn);
 }
 
 // 4. Timer Tick
@@ -792,3 +827,39 @@ function createPeerConnection(peerId) {
 
   return pc;
 }
+
+// --- MODALS (TUTORIAL & ROLE GUIDE) ---
+const btnOpenTutorial = document.getElementById('btn-open-tutorial');
+const modalTutorial = document.getElementById('modal-tutorial');
+const btnCloseTutorial = document.getElementById('btn-close-tutorial');
+const btnTutorialGotIt = document.getElementById('btn-tutorial-got-it');
+
+if (btnOpenTutorial) {
+  btnOpenTutorial.addEventListener('click', () => modalTutorial.classList.remove('hidden'));
+}
+if (btnCloseTutorial) {
+  btnCloseTutorial.addEventListener('click', () => modalTutorial.classList.add('hidden'));
+}
+if (btnTutorialGotIt) {
+  btnTutorialGotIt.addEventListener('click', () => modalTutorial.classList.add('hidden'));
+}
+
+const btnToggleRoles = document.getElementById('btn-toggle-roles');
+const modalRoleGuide = document.getElementById('modal-role-guide');
+const btnCloseRoles = document.getElementById('btn-close-roles');
+
+if (btnToggleRoles) {
+  btnToggleRoles.addEventListener('click', () => modalRoleGuide.classList.remove('hidden'));
+}
+if (btnCloseRoles) {
+  btnCloseRoles.addEventListener('click', () => modalRoleGuide.classList.add('hidden'));
+}
+
+// Show Role button only when playing
+socket.on('room_state_update', (state) => {
+  if (state.gameState === 'PLAYING') {
+    if (btnToggleRoles) btnToggleRoles.classList.remove('hidden');
+  } else {
+    if (btnToggleRoles) btnToggleRoles.classList.add('hidden');
+  }
+});

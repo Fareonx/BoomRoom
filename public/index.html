@@ -34,6 +34,8 @@
         <button id="btn-join-room" class="btn btn-primary">Koda görə daxil ol</button>
         <button id="btn-create-room" class="btn btn-secondary">Yeni oyun yarat</button>
       </div>
+      
+      <button id="btn-open-tutorial" class="btn" style="margin-top: 15px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">📖 Necə Oynamaq Lazımdır?</button>
     </div>
 
     <!-- 2. LOBBİ (GÖZLƏMƏ) EKRANI -->
@@ -101,6 +103,12 @@
         <div class="hud-item" style="align-items: flex-end;">
           <span class="hud-label">Otağınız</span>
           <span id="hud-room" class="badge badge-gold" style="font-size: 0.95rem; margin-top: 2px;">Otaq A</span>
+        </div>
+        
+        <div style="width: 100%; text-align: center; font-size: 0.8rem; margin-top: 10px; color: #94a3b8; background: rgba(0,0,0,0.3); padding: 5px; border-radius: 8px;">
+          Girov Təsdiqi: 
+          <strong>Otaq A:</strong> <span id="hud-lock-a">⏳</span> &nbsp;|&nbsp; 
+          <strong>Otaq B:</strong> <span id="hud-lock-b">⏳</span>
         </div>
       </div>
 
@@ -267,5 +275,116 @@
   <div id="toast" style="position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 10px 20px; border-radius: 9999px; font-size: 0.85rem; z-index: 999; box-shadow: 0 10px 25px rgba(0,0,0,0.5); pointer-events: none; transition: opacity 0.3s ease; opacity: 0;"></div>
 
   <script type="module" src="client.js"></script>
+
+  <!-- FLOATING ROLE GUIDE BUTTON -->
+  <button id="btn-toggle-roles" class="floating-role-toggle hidden">
+    <span>ℹ️ Rollar</span>
+  </button>
+
+  <!-- ROLE GUIDE MODAL -->
+  <div id="modal-role-guide" class="overlay hidden">
+    <div class="chat-modal-box" style="height: 80vh; max-height: 600px;">
+      <div class="chat-header">
+        <strong style="color: #60a5fa;">Rollar Bələdçisi</strong>
+        <button id="btn-close-roles" class="vote-btn" style="padding: 6px 12px; font-size: 0.85rem;">✕ Bağla</button>
+      </div>
+      <div class="chat-messages" style="background: var(--bg-color); overflow-y: auto;">
+        
+        <div class="role-list-item" style="border-left: 4px solid var(--blue-team);">
+          <div>
+            <strong>🛡️ Prezident (Mavi)</strong>
+            <p>Mavilərin əsas lideri! 3-cü raundun sonunda Bombist OLMAYAN otaqda qalmalıdır.</p>
+          </div>
+        </div>
+        
+        <div class="role-list-item" style="border-left: 4px solid var(--red-team);">
+          <div>
+            <strong>💥 Bombist (Qırmızı)</strong>
+            <p>Qırmızıların əsas oyunçusu! 3-cü raundun sonunda Prezidentlə EYNİ OTAQDA olmalıdır ki, partlayış baş versin.</p>
+          </div>
+        </div>
+        
+        <div class="role-list-item" style="border-left: 4px solid var(--blue-team);">
+          <div>
+            <strong>🕵️ Qırmızı Casus (Qırmızı)</strong>
+            <p>Rəng paylaşımında MAVİ parıldayır! Maviləri aldadıb Prezidentin yerini öyrənməlidir.</p>
+          </div>
+        </div>
+        
+        <div class="role-list-item" style="border-left: 4px solid var(--red-team);">
+          <div>
+            <strong>🕵️ Mavi Casus (Mavi)</strong>
+            <p>Rəng paylaşımında QIRMIZI parıldayır! Qırmızıların planını pozmalıdır.</p>
+          </div>
+        </div>
+        
+        <div class="role-list-item" style="border-left: 4px solid var(--blue-team);">
+          <div>
+            <strong>🤐 Utancaq (Mavi)</strong>
+            <p>Kartını və ya rəngini göstərmək qadağandır. Digərləri də özünü Utancaq kimi göstərə bilər.</p>
+          </div>
+        </div>
+        
+        <div class="role-list-item" style="border-left: 4px solid var(--red-team);">
+          <div>
+            <strong>🔍 Agent (Qırmızı)</strong>
+            <p>Hər raundda 1 dəfə otağındakı istənilən oyunçunu məcburi dindirib kartına baxa bilər (Utancaqdan başqa).</p>
+          </div>
+        </div>
+        
+        <div class="role-list-item" style="border-left: 4px solid var(--blue-team);">
+          <div>
+            <strong>👮 Mühafizəçi (Mavi)</strong>
+            <p>Standart mavi oyunçu. Prezidenti qorumalıdır.</p>
+          </div>
+        </div>
+        
+        <div class="role-list-item" style="border-left: 4px solid var(--red-team);">
+          <div>
+            <strong>🥷 Terrorçu (Qırmızı)</strong>
+            <p>Standart qırmızı oyunçu. Bombistə kömək etməlidir.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- TUTORIAL MODAL -->
+  <div id="modal-tutorial" class="overlay hidden">
+    <div class="chat-modal-box" style="height: 85vh; max-height: 650px;">
+      <div class="chat-header">
+        <strong style="color: #60a5fa;">Necə Oynamaq Lazımdır?</strong>
+        <button id="btn-close-tutorial" class="vote-btn" style="padding: 6px 12px; font-size: 0.85rem;">✕ Bağla</button>
+      </div>
+      <div class="chat-messages tutorial-modal-content" style="background: var(--bg-color); overflow-y: auto;">
+        <h2 style="text-align: center; margin-bottom: 10px;">💣 BOOMROOM</h2>
+        <p>Bu, iki fərqli otaqda oynanılan psixoloji komanda oyunudur.</p>
+        
+        <h3>🎯 Məqsəd</h3>
+        <ul>
+          <li><strong>Mavi Komanda:</strong> Oyunun sonuna qədər Prezidenti Bombistdən uzaq tutmalıdır (fərqli otaqlarda olmalıdırlar).</li>
+          <li><strong>Qırmızı Komanda:</strong> 3-cü raundun sonunda Bombisti Prezidentlə eyni otağa gətirməlidir.</li>
+        </ul>
+
+        <h3>🚪 Otaqlar və Girovlar</h3>
+        <p>Bütün oyunçular iki otağa (A və B) bölünür. Hər raundda oyunçular səs verərək bir <strong>Otaq Lideri</strong> seçirlər.</p>
+        <p>Raundun sonunda Lider digər otağa göndəriləcək <strong>Girovları</strong> (oyunçuları) seçir. Hər iki otaq girovları seçib təsdiqlədikdə, oyunçular otaqlarını dəyişir.</p>
+
+        <h3>🤝 Məlumat Paylaşımı</h3>
+        <p>Siz digər oyunçulara qarşılıqlı olaraq məlumatınızı göstərməyi təklif edə bilərsiniz:</p>
+        <ul>
+          <li><strong>Rəngi Göstər:</strong> Yalnız komanda rənginiz (Qırmızı/Mavi) görünür. (Diqqət: Casusların rəngi tərsinə görünür!)</li>
+          <li><strong>Kartı Göstər:</strong> Tam rolunuz və komandanız görünür.</li>
+        </ul>
+        
+        <h3>⏱️ Oyunun Sonu</h3>
+        <p>3 raund bitdikdən sonra oyun başa çatır və Prezidentlə Bombistin harada olduğuna baxılır.</p>
+        
+        <button id="btn-tutorial-got-it" class="btn btn-primary" style="margin-top: 20px; width: 100%;">Aydındır! Başlayaq 🚀</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
