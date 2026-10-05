@@ -93,6 +93,7 @@ const chatMessagesContainer = document.getElementById('chat-messages-container')
 const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
 const btnCloseChat = document.getElementById('btn-close-chat');
+const btnFloatingMic = document.getElementById('btn-floating-mic');
 
 // Auto-fill player name
 if (localStorage.getItem('boom_player_name')) {
@@ -236,8 +237,14 @@ function switchToGame() {
   screenGameOver.classList.add('hidden');
   screenGame.classList.remove('hidden');
   btnToggleChat.classList.remove('hidden');
+  btnFloatingMic.classList.remove('hidden'); // Show mic toggle
 
   updateRoomTitle();
+  
+  // Try to start voice chat automatically
+  setTimeout(() => {
+    initVoiceChat();
+  }, 500);
 }
 
 function updateRoomTitle() {
@@ -650,9 +657,18 @@ function appendChatMessage(msg, isSystem = false, isMine = false) {
 socket.on('game_ended', (result) => {
   screenGame.classList.add('hidden');
   btnToggleChat.classList.add('hidden');
+  btnFloatingMic.classList.add('hidden');
   modalRoomChat.classList.add('hidden');
   screenGameOver.classList.remove('hidden');
 
+  // Stop voice
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  Object.values(peerConnections).forEach(pc => pc.close());
+  peerConnections = {};
+  
   gameOverTitle.textContent = result.title;
   gameOverMessage.textContent = result.message;
 
@@ -694,13 +710,11 @@ function escapeHtml(text) {
 }
 
 
-// --- WEBRTC VOICE CHAT ---
-const btnToggleVoice = document.getElementById('btn-toggle-voice');
+// --- WEBRTC VOICE CHAT (AUTO) ---
 let micEnabled = false;
 let localStream = null;
-let peerConnections = {}; // targetId -> RTCPeerConnection
+let peerConnections = {}; 
 
-// Container for audio tags
 const audioContainer = document.createElement('div');
 audioContainer.id = 'audio-container';
 audioContainer.style.display = 'none';
@@ -710,44 +724,44 @@ const rtcConfig = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 };
 
-btnToggleVoice.addEventListener('click', async () => {
-  if (!micEnabled) {
+async function initVoiceChat() {
+  if (!localStream) {
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       micEnabled = true;
-      btnToggleVoice.textContent = '🔊 Səsi Bağla';
-      btnToggleVoice.style.background = '#22c55e'; // green
-      socket.emit('join_voice_chat');
-      showToast('Səsli çat aktivdir!');
+      btnFloatingMic.innerHTML = '🎙️';
+      btnFloatingMic.classList.remove('muted');
     } catch (err) {
-      showToast('Mikrofona icazə verilmədi!');
+      showToast('Səsli çat üçün mikrofona icazə verməlisiniz!');
+      micEnabled = false;
+      btnFloatingMic.innerHTML = '🔇';
+      btnFloatingMic.classList.add('muted');
+      return;
     }
+  }
+  socket.emit('join_voice_chat');
+}
+
+btnFloatingMic.addEventListener('click', () => {
+  if (!localStream) {
+    initVoiceChat();
   } else {
-    disableVoice();
+    const track = localStream.getAudioTracks()[0];
+    track.enabled = !track.enabled;
+    if (track.enabled) {
+      btnFloatingMic.innerHTML = '🎙️';
+      btnFloatingMic.classList.remove('muted');
+      showToast('Mikrofon açıldı');
+    } else {
+      btnFloatingMic.innerHTML = '🔇';
+      btnFloatingMic.classList.add('muted');
+      showToast('Mikrofon bağlandı');
+    }
   }
 });
 
-function disableVoice() {
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-  }
-  micEnabled = false;
-  btnToggleVoice.textContent = '🎤 Səsi Aç';
-  btnToggleVoice.style.background = '#334155';
-  
-  // Close all peer connections
-  Object.values(peerConnections).forEach(pc => pc.close());
-  peerConnections = {};
-  audioContainer.innerHTML = ''; // clear audio elements
-  
-  socket.emit('leave_voice_chat');
-}
-
-// When a new person joins voice chat in our room
 socket.on('peer_joined_voice', async ({ peerId }) => {
-  if (!micEnabled) return;
-  // Create offer
+  if (!localStream) return;
   const pc = createPeerConnection(peerId);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -768,28 +782,27 @@ socket.on('peer_left_voice', ({ peerId }) => {
 });
 
 socket.on('force_leave_voice', () => {
-  if (micEnabled) {
-    disableVoice();
-    showToast('Otaq dəyişdiyi üçün səsli çat dayandırıldı. Yenidən qoşula bilərsiniz.');
+  Object.values(peerConnections).forEach(pc => pc.close());
+  peerConnections = {};
+  audioContainer.innerHTML = ''; 
+  
+  if (localStream) {
+    setTimeout(() => {
+      socket.emit('join_voice_chat');
+    }, 1500); 
   }
 });
 
 socket.on('webrtc_signal', async ({ senderId, signal }) => {
-  if (!micEnabled) return;
-
+  if (!localStream) return;
   let pc = peerConnections[senderId];
-  if (!pc) {
-    pc = createPeerConnection(senderId);
-  }
+  if (!pc) pc = createPeerConnection(senderId);
 
   if (signal.type === 'offer') {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    socket.emit('webrtc_signal', {
-      targetId: senderId,
-      signal: { type: 'answer', answer }
-    });
+    socket.emit('webrtc_signal', { targetId: senderId, signal: { type: 'answer', answer } });
   } else if (signal.type === 'answer') {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
   } else if (signal.type === 'candidate') {
@@ -800,17 +813,11 @@ socket.on('webrtc_signal', async ({ senderId, signal }) => {
 function createPeerConnection(peerId) {
   const pc = new RTCPeerConnection(rtcConfig);
   peerConnections[peerId] = pc;
-
-  if (localStream) {
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-  }
+  if (localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
   pc.onicecandidate = (event) => {
     if (event.candidate) {
-      socket.emit('webrtc_signal', {
-        targetId: peerId,
-        signal: { type: 'candidate', candidate: event.candidate }
-      });
+      socket.emit('webrtc_signal', { targetId: peerId, signal: { type: 'candidate', candidate: event.candidate } });
     }
   };
 
